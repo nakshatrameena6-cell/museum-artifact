@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="{% block meta_desc %}Explore ancient artifacts from world civilizations — Egyptian, Roman, Greek, Chola, and Indus Valley.{% endblock %}">
+    <title>{% block title %}Museum Artifact Explorer{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+
+<!-- ── Flash messages ─────────────────────────────── -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container" id="flash-container">
+    {% for category, message in messages %}
+    <div class="flash {{ category }}">
+        <span>{{ message }}</span>
+        <span class="flash-close" onclick="this.parentElement.remove()">✕</span>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+
+<!-- ── Navbar ─────────────────────────────────────── -->
+<header class="navbar">
+    <a href="{{ url_for('home') }}" class="logo">MUSEUM<span>VAULT</span></a>
+
+    <nav>
+        <ul class="nav-links" id="nav-links">
+            <li><a href="{{ url_for('home') }}"
+                   class="{% if request.endpoint == 'home' %}active{% endif %}">Home</a></li>
+            <li><a href="{{ url_for('artifacts') }}"
+                   class="{% if request.endpoint in ['artifacts','artifact_detail'] %}active{% endif %}">Explore Artifacts</a></li>
+            <li><a href="{{ url_for('civilizations') }}"
+                   class="{% if request.endpoint in ['civilizations','civilization_detail'] %}active{% endif %}">Civilizations</a></li>
+            <li><a href="{{ url_for('categories') }}"
+                   class="{% if request.endpoint in ['categories','category_detail'] %}active{% endif %}">Categories</a></li>
+            <li><a href="{{ url_for('favorites') }}"
+                   class="{% if request.endpoint == 'favorites' %}active{% endif %}">Favorites ♥</a></li>
+            <li><a href="{{ url_for('add_artifact') }}" class="btn btn-primary btn-sm"
+                   style="border-radius:3px;">+ Add Artifact</a></li>
+        </ul>
+    </nav>
+
+    <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+        <span></span><span></span><span></span>
+    </button>
+</header>
+
+<!-- ── Page content ──────────────────────────────── -->
+{% block content %}{% endblock %}
+
+<!-- ── Footer ────────────────────────────────────── -->
+<footer>
+    <p><strong>MUSEUMVAULT</strong> &nbsp;·&nbsp; Preserving History Through Technology &nbsp;·&nbsp; DBMS Project</p>
+</footer>
+
+<!-- ── JS ────────────────────────────────────────── -->
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Add Artifact | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="form-page">
+    <div class="form-card">
+        <p class="eyebrow">Collection Management</p>
+        <h1>Add New Artifact</h1>
+        <p class="subtitle">Fill in the details to add a new artifact to the museum collection.</p>
+
+        <form method="POST" action="{{ url_for('add_artifact') }}" novalidate>
+
+            <div class="form-group">
+                <label for="name">Artifact Name <span style="color:#c0392b">*</span></label>
+                <input type="text" id="name" name="name"
+                       value="{{ form.get('name', '') if form else '' }}"
+                       placeholder="e.g. Terracotta Warrior" required>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description <span style="color:#c0392b">*</span></label>
+                <textarea id="description" name="description"
+                          placeholder="Describe the artifact's history, significance, and features…"
+                          required>{{ form.get('description', '') if form else '' }}</textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="civilization_id">Civilization <span style="color:#c0392b">*</span></label>
+                    <select id="civilization_id" name="civilization_id" required>
+                        <option value="">— Select Civilization —</option>
+                        {% for c in civilizations %}
+                        <option value="{{ c.id }}"
+                                {% if form and form.get('civilization_id') == c.id|string %}selected{% endif %}>
+                            {{ c.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="category_id">Category <span style="color:#c0392b">*</span></label>
+                    <select id="category_id" name="category_id" required>
+                        <option value="">— Select Category —</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}"
+                                {% if form and form.get('category_id') == cat.id|string %}selected{% endif %}>
+                            {{ cat.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="period">Historical Period</label>
+                    <input type="text" id="period" name="period"
+                           value="{{ form.get('period', '') if form else '' }}"
+                           placeholder="e.g. Bronze Age (3300–1300 BCE)">
+                </div>
+
+                <div class="form-group">
+                    <label for="material">Material</label>
+                    <input type="text" id="material" name="material"
+                           value="{{ form.get('material', '') if form else '' }}"
+                           placeholder="e.g. Bronze, Limestone, Gold">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="discovery_location">Discovery Location</label>
+                    <input type="text" id="discovery_location" name="discovery_location"
+                           value="{{ form.get('discovery_location', '') if form else '' }}"
+                           placeholder="e.g. Pompeii, Italy">
+                </div>
+
+                <div class="form-group">
+                    <label for="discovery_year">Discovery Year</label>
+                    <input type="number" id="discovery_year" name="discovery_year"
+                           value="{{ form.get('discovery_year', '') if form else '' }}"
+                           placeholder="e.g. 1922" min="-5000" max="2030">
+                    <p class="form-hint">Use negative values for BCE years (e.g. -196 for 196 BCE)</p>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="image_url">Image URL</label>
+                <input type="url" id="image_url" name="image_url"
+                       value="{{ form.get('image_url', '') if form else '' }}"
+                       placeholder="https://example.com/image.jpg">
+                <p class="form-hint">Optional. Leave blank if no image is available.</p>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Add Artifact</button>
+                <a href="{{ url_for('artifacts') }}" class="btn btn-ghost">Cancel</a>
+            </div>
+
+        </form>
+    </div>
+</main>
+{% endblock %}

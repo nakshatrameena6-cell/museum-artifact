@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block title %}Edit — {{ artifact['name'] }} | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="form-page">
+    <div class="form-card">
+        <p class="eyebrow">Collection Management</p>
+        <h1>Edit Artifact</h1>
+        <p class="subtitle">Update the details for <strong>{{ artifact['name'] }}</strong>.</p>
+
+        <form method="POST"
+              action="{{ url_for('edit_artifact', artifact_id=artifact['id']) }}"
+              novalidate>
+
+            <div class="form-group">
+                <label for="name">Artifact Name <span style="color:#c0392b">*</span></label>
+                <input type="text" id="name" name="name"
+                       value="{{ request.form.get('name', artifact['name']) }}" required>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Description <span style="color:#c0392b">*</span></label>
+                <textarea id="description" name="description" required>{{ request.form.get('description', artifact['description']) }}</textarea>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="civilization_id">Civilization <span style="color:#c0392b">*</span></label>
+                    <select id="civilization_id" name="civilization_id" required>
+                        <option value="">— Select Civilization —</option>
+                        {% for c in civilizations %}
+                        <option value="{{ c.id }}"
+                                {% if request.form.get('civilization_id', artifact['civilization_id']|string) == c.id|string %}selected{% endif %}>
+                            {{ c.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="category_id">Category <span style="color:#c0392b">*</span></label>
+                    <select id="category_id" name="category_id" required>
+                        <option value="">— Select Category —</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat.id }}"
+                                {% if request.form.get('category_id', artifact['category_id']|string) == cat.id|string %}selected{% endif %}>
+                            {{ cat.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="period">Historical Period</label>
+                    <input type="text" id="period" name="period"
+                           value="{{ request.form.get('period', artifact['period'] or '') }}">
+                </div>
+
+                <div class="form-group">
+                    <label for="material">Material</label>
+                    <input type="text" id="material" name="material"
+                           value="{{ request.form.get('material', artifact['material'] or '') }}">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="discovery_location">Discovery Location</label>
+                    <input type="text" id="discovery_location" name="discovery_location"
+                           value="{{ request.form.get('discovery_location', artifact['discovery_location'] or '') }}">
+                </div>
+
+                <div class="form-group">
+                    <label for="discovery_year">Discovery Year</label>
+                    <input type="number" id="discovery_year" name="discovery_year"
+                           value="{{ request.form.get('discovery_year', artifact['discovery_year'] or '') }}"
+                           min="-5000" max="2030">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="image_url">Image URL</label>
+                <input type="url" id="image_url" name="image_url"
+                       value="{{ request.form.get('image_url', artifact['image_url'] or '') }}"
+                       placeholder="https://example.com/image.jpg">
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+                <a href="{{ url_for('artifact_detail', artifact_id=artifact['id']) }}"
+                   class="btn btn-ghost">Cancel</a>
+            </div>
+
+        </form>
+    </div>
+</main>
+{% endblock %}

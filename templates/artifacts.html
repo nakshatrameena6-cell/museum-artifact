@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}{% if page_title %}{{ page_title }}{% else %}Explore Artifacts{% endif %} | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="container">
+
+    <div class="page-header">
+        <p class="eyebrow">The Collection</p>
+        <h1>{% if page_title %}{{ page_title }}{% else %}Explore Artifacts{% endif %}</h1>
+    </div>
+
+    <!-- ── Filter / Search ──────────────────────── -->
+    {% if not page_title %}
+    <form method="GET" action="{{ url_for('artifacts') }}" class="filter-panel">
+
+        <input type="text"
+               name="search"
+               id="search-input"
+               placeholder="Search by name, material, location…"
+               value="{{ search }}"
+               autocomplete="off">
+
+        <select name="civilization" id="filter-civ">
+            <option value="">All Civilizations</option>
+            {% for c in civilizations %}
+            <option value="{{ c.id }}"
+                    {% if selected_civ == c.id|string %}selected{% endif %}>
+                {{ c.name }}
+            </option>
+            {% endfor %}
+        </select>
+
+        <select name="category" id="filter-cat">
+            <option value="">All Categories</option>
+            {% for cat in categories %}
+            <option value="{{ cat.id }}"
+                    {% if selected_cat == cat.id|string %}selected{% endif %}>
+                {{ cat.name }}
+            </option>
+            {% endfor %}
+        </select>
+
+        <select name="period" id="filter-period">
+            <option value="">All Periods</option>
+            {% for p in periods %}
+            <option value="{{ p.period }}"
+                    {% if selected_period == p.period %}selected{% endif %}>
+                {{ p.period }}
+            </option>
+            {% endfor %}
+        </select>
+
+        <button type="submit" class="btn btn-primary">Search</button>
+        <a href="{{ url_for('artifacts') }}" class="btn btn-ghost">Reset</a>
+
+    </form>
+    {% endif %}
+
+    <!-- ── Result count ──────────────────────────── -->
+    <div class="section-top" style="margin-bottom:22px;">
+        <p class="result-count">
+            {% if search or selected_civ or selected_cat or selected_period %}
+                <strong>{{ artifacts|length }}</strong> result{% if artifacts|length != 1 %}s{% endif %} found
+            {% else %}
+                <strong>{{ artifacts|length }}</strong> artifact{% if artifacts|length != 1 %}s{% endif %} in the collection
+            {% endif %}
+        </p>
+        <a href="{{ url_for('add_artifact') }}" class="btn btn-secondary btn-sm">+ Add New Artifact</a>
+    </div>
+
+    <!-- ── Artifact Grid ─────────────────────────── -->
+    <div class="artifact-grid">
+        {% for a in artifacts %}
+        <article class="artifact-card">
+            <a href="{{ url_for('artifact_detail', artifact_id=a.id) }}" style="display:block;">
+                {% if a.image_url %}
+                <img class="card-img"
+                     src="{{ a.image_url }}"
+                     alt="{{ a.name }}"
+                     loading="lazy"
+                     onerror="this.outerHTML='<div class=card-img-placeholder>🏺</div>'">
+                {% else %}
+                <div class="card-img-placeholder">🏺</div>
+                {% endif %}
+            </a>
+
+            <div class="card-body">
+                <div class="card-tags">
+                    <span class="tag">{{ a.civilization }}</span>
+                    <span class="tag">{{ a.category }}</span>
+                    {% if a.is_favorite %}<span class="tag" style="background:#fef2f2;color:#991b1b;">♥ Saved</span>{% endif %}
+                </div>
+                <h3>{{ a.name }}</h3>
+                <p class="desc">{{ a.description }}</p>
+            </div>
+
+            <div class="card-footer">
+                <span class="period">{{ a.period or '—' }}</span>
+                <a href="{{ url_for('artifact_detail', artifact_id=a.id) }}" class="view-link">
+                    View Details →
+                </a>
+            </div>
+        </article>
+
+        {% else %}
+        <div class="empty-state">
+            <div class="icon">🔍</div>
+            <h3>No artifacts found</h3>
+            <p>Try adjusting your search terms or clearing the filters.</p>
+            <a href="{{ url_for('artifacts') }}" class="btn btn-primary">View All Artifacts</a>
+        </div>
+        {% endfor %}
+    </div>
+
+</main>
+{% endblock %}

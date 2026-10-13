@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}{{ artifact.name }} | MuseumVault{% endblock %}
+{% block meta_desc %}{{ artifact.description[:155] }}{% endblock %}
+
+{% block content %}
+<main class="detail-container">
+
+    <!-- ── Breadcrumb ────────────────────────────── -->
+    <nav class="breadcrumb">
+        <a href="{{ url_for('home') }}">Home</a>
+        <span>›</span>
+        <a href="{{ url_for('artifacts') }}">Artifacts</a>
+        <span>›</span>
+        <span>{{ artifact.name }}</span>
+    </nav>
+
+    <div class="detail-grid">
+
+        <!-- ── Image ─────────────────────────────── -->
+        <div>
+            {% if artifact.image_url %}
+            <img class="detail-img"
+                 id="artifact-img"
+                 src="{{ artifact.image_url }}"
+                 alt="{{ artifact.name }}"
+                 onerror="this.outerHTML='<div class=detail-img-placeholder>🏺</div>'">
+            {% else %}
+            <div class="detail-img-placeholder">🏺</div>
+            {% endif %}
+        </div>
+
+        <!-- ── Content ───────────────────────────── -->
+        <div class="detail-content">
+            <p class="eyebrow">{{ artifact.civilization }} &nbsp;·&nbsp; {{ artifact.category }}</p>
+
+            <h1>{{ artifact.name }}</h1>
+
+            <p class="detail-desc">{{ artifact.description }}</p>
+
+            <!-- Metadata table -->
+            <div class="detail-meta">
+                {% if artifact.period %}
+                <div class="meta-row">
+                    <span class="label">Historical Period</span>
+                    <span class="value">{{ artifact.period }}</span>
+                </div>
+                {% endif %}
+
+                <div class="meta-row">
+                    <span class="label">Civilization</span>
+                    <span class="value">{{ artifact.civilization }}</span>
+                </div>
+
+                <div class="meta-row">
+                    <span class="label">Region</span>
+                    <span class="value">{{ artifact.region or 'Unknown' }}</span>
+                </div>
+
+                {% if artifact.material %}
+                <div class="meta-row">
+                    <span class="label">Material</span>
+                    <span class="value">{{ artifact.material }}</span>
+                </div>
+                {% endif %}
+
+                {% if artifact.discovery_location %}
+                <div class="meta-row">
+                    <span class="label">Discovery Location</span>
+                    <span class="value">{{ artifact.discovery_location }}</span>
+                </div>
+                {% endif %}
+
+                {% if artifact.discovery_year %}
+                <div class="meta-row">
+                    <span class="label">Discovery Year</span>
+                    <span class="value">{{ artifact.discovery_year }}</span>
+                </div>
+                {% endif %}
+
+                <div class="meta-row">
+                    <span class="label">Category</span>
+                    <span class="value">{{ artifact.category }}</span>
+                </div>
+
+                {% if artifact.created_at %}
+                <div class="meta-row">
+                    <span class="label">Added to Database</span>
+                    <span class="value">{{ artifact.created_at[:10] }}</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Actions -->
+            <div class="detail-actions">
+                <!-- Favorite toggle -->
+                <form method="POST"
+                      action="{{ url_for('toggle_favorite', artifact_id=artifact.id) }}">
+                    <input type="hidden" name="next"
+                           value="{{ url_for('artifact_detail', artifact_id=artifact.id) }}">
+                    <button type="submit" class="btn {% if artifact.is_favorite %}btn-danger{% else %}btn-secondary{% endif %}"
+                            id="fav-btn">
+                        {% if artifact.is_favorite %}♥ Remove from Favorites{% else %}♡ Save to Favorites{% endif %}
+                    </button>
+                </form>
+
+                <a href="{{ url_for('edit_artifact', artifact_id=artifact.id) }}"
+                   class="btn btn-ghost">✏ Edit</a>
+
+                <button class="btn btn-ghost"
+                        style="color:#c0392b;border-color:#c0392b;"
+                        onclick="document.getElementById('delete-modal').classList.add('active')">
+                    🗑 Delete
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div style="margin-top:40px;">
+        <a href="{{ url_for('artifacts') }}" class="btn btn-ghost">← Back to Collection</a>
+    </div>
+
+</main>
+
+<!-- ── Delete confirmation modal ─────────────────── -->
+<div class="modal-overlay" id="delete-modal">
+    <div class="modal">
+        <h3>Delete Artifact?</h3>
+        <p>
+            You are about to permanently delete
+            <strong>"{{ artifact.name }}"</strong> from the collection.
+            This action cannot be undone.
+        </p>
+        <div class="modal-actions">
+            <form method="POST"
+                  action="{{ url_for('delete_artifact', artifact_id=artifact.id) }}">
+                <button type="submit" class="btn btn-danger">Yes, Delete</button>
+            </form>
+            <button class="btn btn-ghost"
+                    onclick="document.getElementById('delete-modal').classList.remove('active')">
+                Cancel
+            </button>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

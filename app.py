@@ -1,259 +1,427 @@
-from flask import Flask, render_template, request, abort
-import sqlite3
+"""
+app.py — Museum Artifact Explorer
+Full Flask application with SQLite backend.
+Routes: home, artifacts, artifact detail, add, edit, delete, favorites,
+        civilizations, categories, and search/filter.
+"""
+
+import os
 import random
+from flask import (Flask, render_template, request, redirect,
+                   url_for, flash, abort, jsonify)
+from database import get_db, initialize_database
 
+# ── App setup ───────────────────────────────────────────────────────────────
 app = Flask(__name__)
-
-DATABASE = "museum.db"
-
-
-def get_db():
-    connection = sqlite3.connect(DATABASE)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+# IMPORTANT: Set SECRET_KEY in your environment for production.
+# Falls back to a development key when running locally.
+app.secret_key = os.environ.get("SECRET_KEY", "dev-museum-secret-key-change-in-prod")
 
 
-def initialize_database():
-    db = get_db()
-
-    db.executescript("""
-        CREATE TABLE IF NOT EXISTS civilizations (
-            civilization_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL UNIQUE,
-            region TEXT,
-            period TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS categories (
-            category_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            category_name TEXT NOT NULL UNIQUE
-        );
-
-        CREATE TABLE IF NOT EXISTS artifacts (
-            artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            artifact_name TEXT NOT NULL,
-            civilization_id INTEGER NOT NULL,
-            category_id INTEGER NOT NULL,
-            discovery_location TEXT,
-            discovery_year INTEGER,
-            estimated_age INTEGER,
-            condition TEXT DEFAULT 'Good',
-            description TEXT,
-            image_url TEXT,
-            FOREIGN KEY (civilization_id)
-                REFERENCES civilizations(civilization_id),
-            FOREIGN KEY (category_id)
-                REFERENCES categories(category_id)
-        );
-    """)
-
-    civilization_count = db.execute(
-        "SELECT COUNT(*) FROM civilizations"
-    ).fetchone()[0]
-
-    if civilization_count == 0:
-        db.executemany("""
-            INSERT INTO civilizations (name, region, period)
-            VALUES (?, ?, ?)
-        """, [
-            ("Roman", "Europe", "Ancient"),
-            ("Egyptian", "North Africa", "Ancient"),
-            ("Chola", "South India", "Medieval"),
-            ("Greek", "Europe", "Ancient"),
-        ])
-
-    category_count = db.execute(
-        "SELECT COUNT(*) FROM categories"
-    ).fetchone()[0]
-
-    if category_count == 0:
-        db.executemany("""
-            INSERT INTO categories (category_name)
-            VALUES (?)
-        """, [
-            ("Coins",),
-            ("Sculptures",),
-            ("Pottery",),
-            ("Jewelry",),
-        ])
-
-    artifact_count = db.execute(
-        "SELECT COUNT(*) FROM artifacts"
-    ).fetchone()[0]
-
-    if artifact_count == 0:
-        db.executemany("""
-            INSERT INTO artifacts (
-                artifact_name,
-                civilization_id,
-                category_id,
-                discovery_location,
-                discovery_year,
-                estimated_age,
-                condition,
-                description,
-                image_url
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            (
-                "Roman Silver Coin",
-                1, 1, "Rome, Italy", 1890, 1800, "Good",
-                "A silver coin representing the monetary history "
-                "of ancient Rome.",
-                "https://images.unsplash.com/photo-1605792657660-596af9009e82"
-            ),
-            (
-                "Egyptian Gold Jewelry",
-                2, 4, "Egypt", 1920, 2500, "Good",
-                "An example of the craftsmanship associated "
-                "with ancient Egyptian jewelry.",
-                "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338"
-            ),
-            (
-                "Chola Bronze Sculpture",
-                3, 2, "Tamil Nadu, India", 1950, 900, "Excellent",
-                "A bronze sculpture representing the artistic "
-                "traditions of the Chola period.",
-                "https://images.unsplash.com/photo-1577083552431-6e5fd01aa342"
-            ),
-            (
-                "Ancient Greek Pottery",
-                4, 3, "Athens, Greece", 1900, 2200, "Fair",
-                "Pottery provides information about the daily "
-                "life and artistic traditions of ancient Greece.",
-                "https://images.unsplash.com/photo-1578749556568-bc2c40e68b61"
-            ),
-        ])
-
-    db.commit()
-    db.close()
+# ── Helper ───────────────────────────────────────────────────────────────────
+def _artifact_query(extra_where="", params=None, order="a.name"):
+    """Return the base artifact SELECT with optional WHERE clause."""
+    sql = """
+        SELECT
+            a.id, a.name, a.description, a.period, a.discovery_location,
+            a.discovery_year, a.material, a.image_url, a.created_at,
+            a.civilization_id, a.category_id,
+            c.name   AS civilization,
+            c.region AS region,
+            c.period AS civ_period,
+            cat.name AS category,
+            CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END AS is_favorite
+        FROM artifacts a
+        JOIN  civilizations c   ON a.civilization_id = c.id
+        JOIN  categories    cat ON a.category_id     = cat.id
+        LEFT JOIN favorites f   ON f.artifact_id     = a.id
+    """
+    if extra_where:
+        sql += " WHERE " + extra_where
+    sql += " ORDER BY " + order
+    return sql, (params or [])
 
 
+# ── Homepage ─────────────────────────────────────────────────────────────────
 @app.route("/")
 def home():
     db = get_db()
+    try:
+        total_artifacts = db.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0]
+        total_civs      = db.execute("SELECT COUNT(*) FROM civilizations").fetchone()[0]
+        total_cats      = db.execute("SELECT COUNT(*) FROM categories").fetchone()[0]
 
-    search = request.args.get("search", "").strip()
-    civilization_id = request.args.get("civilization", "").strip()
-    category_id = request.args.get("category", "").strip()
-    period = request.args.get("period", "").strip()
+        sql, params = _artifact_query()
+        all_artifacts = db.execute(sql, params).fetchall()
 
-    query = """
-        SELECT
-            a.*,
-            c.name AS civilization,
-            c.period AS historical_period,
-            cat.category_name
-        FROM artifacts a
-        JOIN civilizations c
-            ON a.civilization_id = c.civilization_id
-        JOIN categories cat
-            ON a.category_id = cat.category_id
-        WHERE 1=1
-    """
-
-    params = []
-
-    if search:
-        query += " AND a.artifact_name LIKE ?"
-        params.append(f"%{search}%")
-
-    if civilization_id.isdigit():
-        query += " AND a.civilization_id = ?"
-        params.append(int(civilization_id))
-
-    if category_id.isdigit():
-        query += " AND a.category_id = ?"
-        params.append(int(category_id))
-
-    if period:
-        query += " AND c.period = ?"
-        params.append(period)
-
-    query += " ORDER BY a.artifact_name"
-
-    artifacts = db.execute(query, params).fetchall()
-
-    civilizations = db.execute("""
-        SELECT * FROM civilizations ORDER BY name
-    """).fetchall()
-
-    categories = db.execute("""
-        SELECT * FROM categories ORDER BY category_name
-    """).fetchall()
-
-    periods = db.execute("""
-        SELECT DISTINCT period
-        FROM civilizations
-        WHERE period IS NOT NULL AND period != ''
-        ORDER BY period
-    """).fetchall()
-
-    total = db.execute("""
-        SELECT COUNT(*) FROM artifacts
-    """).fetchone()[0]
-
-    featured = db.execute("""
-        SELECT
-            a.*,
-            c.name AS civilization,
-            c.period AS historical_period,
-            cat.category_name
-        FROM artifacts a
-        JOIN civilizations c
-            ON a.civilization_id = c.civilization_id
-        JOIN categories cat
-            ON a.category_id = cat.category_id
-    """).fetchall()
-
-    artifact_of_day = random.choice(featured) if featured else None
-
-    db.close()
+        featured = random.sample(list(all_artifacts), min(3, len(all_artifacts)))
+        artifact_of_day = random.choice(all_artifacts) if all_artifacts else None
+    finally:
+        db.close()
 
     return render_template(
         "index.html",
-        artifacts=artifacts,
+        featured=featured,
+        artifact_of_day=artifact_of_day,
+        total_artifacts=total_artifacts,
+        total_civs=total_civs,
+        total_cats=total_cats,
+    )
+
+
+# ── Artifact listing + search + filter ───────────────────────────────────────
+@app.route("/artifacts")
+def artifacts():
+    db = get_db()
+    try:
+        search      = request.args.get("search", "").strip()
+        civ_filter  = request.args.get("civilization", "").strip()
+        cat_filter  = request.args.get("category", "").strip()
+        period_filter = request.args.get("period", "").strip()
+
+        conditions, params = [], []
+
+        if search:
+            conditions.append(
+                "(a.name LIKE ? OR a.description LIKE ? "
+                "OR a.material LIKE ? OR a.period LIKE ? "
+                "OR a.discovery_location LIKE ? "
+                "OR c.name LIKE ? OR cat.name LIKE ?)"
+            )
+            term = f"%{search}%"
+            params.extend([term] * 7)
+
+        if civ_filter.isdigit():
+            conditions.append("a.civilization_id = ?")
+            params.append(int(civ_filter))
+
+        if cat_filter.isdigit():
+            conditions.append("a.category_id = ?")
+            params.append(int(cat_filter))
+
+        if period_filter:
+            conditions.append("c.period = ?")
+            params.append(period_filter)
+
+        where = " AND ".join(conditions)
+        sql, params = _artifact_query(where, params)
+        artifact_list = db.execute(sql, params).fetchall()
+
+        civilizations = db.execute("SELECT * FROM civilizations ORDER BY name").fetchall()
+        categories    = db.execute("SELECT * FROM categories    ORDER BY name").fetchall()
+        periods       = db.execute(
+            "SELECT DISTINCT period FROM civilizations WHERE period IS NOT NULL ORDER BY period"
+        ).fetchall()
+    finally:
+        db.close()
+
+    return render_template(
+        "artifacts.html",
+        artifacts=artifact_list,
         civilizations=civilizations,
         categories=categories,
         periods=periods,
         search=search,
-        selected_civilization=civilization_id,
-        selected_category=category_id,
-        selected_period=period,
-        total=total,
-        artifact_of_day=artifact_of_day
+        selected_civ=civ_filter,
+        selected_cat=cat_filter,
+        selected_period=period_filter,
     )
 
 
+# ── Artifact detail ───────────────────────────────────────────────────────────
 @app.route("/artifact/<int:artifact_id>")
-def details(artifact_id):
+def artifact_detail(artifact_id):
     db = get_db()
-
-    artifact = db.execute("""
-        SELECT
-            a.*,
-            c.name AS civilization,
-            c.region,
-            c.period AS historical_period,
-            cat.category_name
-        FROM artifacts a
-        JOIN civilizations c
-            ON a.civilization_id = c.civilization_id
-        JOIN categories cat
-            ON a.category_id = cat.category_id
-        WHERE a.artifact_id = ?
-    """, (artifact_id,)).fetchone()
-
-    db.close()
+    try:
+        sql, _ = _artifact_query("a.id = ?", [artifact_id])
+        artifact = db.execute(sql, [artifact_id]).fetchone()
+    finally:
+        db.close()
 
     if artifact is None:
         abort(404)
 
-    return render_template("details.html", artifact=artifact)
+    return render_template("artifact_detail.html", artifact=artifact)
 
 
+# ── Add artifact ──────────────────────────────────────────────────────────────
+@app.route("/artifact/add", methods=["GET", "POST"])
+def add_artifact():
+    db = get_db()
+    try:
+        civilizations = db.execute("SELECT * FROM civilizations ORDER BY name").fetchall()
+        categories    = db.execute("SELECT * FROM categories    ORDER BY name").fetchall()
+
+        if request.method == "POST":
+            name             = request.form.get("name", "").strip()
+            description      = request.form.get("description", "").strip()
+            period           = request.form.get("period", "").strip()
+            discovery_loc    = request.form.get("discovery_location", "").strip()
+            discovery_year   = request.form.get("discovery_year", "").strip()
+            material         = request.form.get("material", "").strip()
+            image_url        = request.form.get("image_url", "").strip()
+            civilization_id  = request.form.get("civilization_id", "").strip()
+            category_id      = request.form.get("category_id", "").strip()
+
+            errors = []
+            if not name:
+                errors.append("Artifact name is required.")
+            if not description:
+                errors.append("Description is required.")
+            if not civilization_id.isdigit():
+                errors.append("Please select a civilization.")
+            if not category_id.isdigit():
+                errors.append("Please select a category.")
+
+            if errors:
+                for e in errors:
+                    flash(e, "error")
+            else:
+                year_val = int(discovery_year) if discovery_year.lstrip("-").isdigit() else None
+                db.execute(
+                    """INSERT INTO artifacts
+                       (name, description, period, discovery_location, discovery_year,
+                        material, image_url, civilization_id, category_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (name, description, period or None, discovery_loc or None,
+                     year_val, material or None, image_url or None,
+                     int(civilization_id), int(category_id))
+                )
+                db.commit()
+                flash(f'"{name}" has been added to the collection!', "success")
+                return redirect(url_for("artifacts"))
+
+        return render_template("add_artifact.html",
+                               civilizations=civilizations,
+                               categories=categories,
+                               form=request.form)
+    finally:
+        db.close()
+
+
+# ── Edit artifact ─────────────────────────────────────────────────────────────
+@app.route("/artifact/<int:artifact_id>/edit", methods=["GET", "POST"])
+def edit_artifact(artifact_id):
+    db = get_db()
+    try:
+        artifact      = db.execute("SELECT * FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+        if artifact is None:
+            abort(404)
+
+        civilizations = db.execute("SELECT * FROM civilizations ORDER BY name").fetchall()
+        categories    = db.execute("SELECT * FROM categories    ORDER BY name").fetchall()
+
+        if request.method == "POST":
+            name             = request.form.get("name", "").strip()
+            description      = request.form.get("description", "").strip()
+            period           = request.form.get("period", "").strip()
+            discovery_loc    = request.form.get("discovery_location", "").strip()
+            discovery_year   = request.form.get("discovery_year", "").strip()
+            material         = request.form.get("material", "").strip()
+            image_url        = request.form.get("image_url", "").strip()
+            civilization_id  = request.form.get("civilization_id", "").strip()
+            category_id      = request.form.get("category_id", "").strip()
+
+            errors = []
+            if not name:
+                errors.append("Artifact name is required.")
+            if not description:
+                errors.append("Description is required.")
+            if not civilization_id.isdigit():
+                errors.append("Please select a civilization.")
+            if not category_id.isdigit():
+                errors.append("Please select a category.")
+
+            if errors:
+                for e in errors:
+                    flash(e, "error")
+            else:
+                year_val = int(discovery_year) if discovery_year.lstrip("-").isdigit() else None
+                db.execute(
+                    """UPDATE artifacts SET
+                       name=?, description=?, period=?, discovery_location=?,
+                       discovery_year=?, material=?, image_url=?,
+                       civilization_id=?, category_id=?
+                       WHERE id=?""",
+                    (name, description, period or None, discovery_loc or None,
+                     year_val, material or None, image_url or None,
+                     int(civilization_id), int(category_id), artifact_id)
+                )
+                db.commit()
+                flash(f'"{name}" has been updated successfully!', "success")
+                return redirect(url_for("artifact_detail", artifact_id=artifact_id))
+
+        return render_template("edit_artifact.html",
+                               artifact=artifact,
+                               civilizations=civilizations,
+                               categories=categories)
+    finally:
+        db.close()
+
+
+# ── Delete artifact ───────────────────────────────────────────────────────────
+@app.route("/artifact/<int:artifact_id>/delete", methods=["POST"])
+def delete_artifact(artifact_id):
+    db = get_db()
+    try:
+        artifact = db.execute("SELECT name FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+        if artifact is None:
+            abort(404)
+        name = artifact["name"]
+        db.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
+        db.commit()
+        flash(f'"{name}" has been removed from the collection.', "success")
+    finally:
+        db.close()
+    return redirect(url_for("artifacts"))
+
+
+# ── Favorites ─────────────────────────────────────────────────────────────────
+@app.route("/favorites")
+def favorites():
+    db = get_db()
+    try:
+        sql = """
+            SELECT
+                a.id, a.name, a.description, a.period,
+                a.image_url, a.material,
+                c.name   AS civilization,
+                cat.name AS category,
+                f.created_at AS saved_at
+            FROM favorites f
+            JOIN artifacts a    ON f.artifact_id = a.id
+            JOIN civilizations c   ON a.civilization_id = c.id
+            JOIN categories    cat ON a.category_id     = cat.id
+            ORDER BY f.created_at DESC
+        """
+        fav_artifacts = db.execute(sql).fetchall()
+    finally:
+        db.close()
+
+    return render_template("favorites.html", favorites=fav_artifacts)
+
+
+@app.route("/artifact/<int:artifact_id>/favorite/toggle", methods=["POST"])
+def toggle_favorite(artifact_id):
+    db = get_db()
+    try:
+        artifact = db.execute("SELECT name FROM artifacts WHERE id = ?", (artifact_id,)).fetchone()
+        if artifact is None:
+            abort(404)
+
+        existing = db.execute(
+            "SELECT id FROM favorites WHERE artifact_id = ?", (artifact_id,)
+        ).fetchone()
+
+        if existing:
+            db.execute("DELETE FROM favorites WHERE artifact_id = ?", (artifact_id,))
+            db.commit()
+            flash(f'"{artifact["name"]}" removed from favorites.', "info")
+            action = "removed"
+        else:
+            db.execute("INSERT INTO favorites (artifact_id) VALUES (?)", (artifact_id,))
+            db.commit()
+            flash(f'"{artifact["name"]}" added to favorites!', "success")
+            action = "added"
+    finally:
+        db.close()
+
+    # If the request wants JSON (AJAX), return JSON
+    if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
+        return jsonify({"action": action})
+
+    # Otherwise redirect back
+    next_url = request.form.get("next") or url_for("artifact_detail", artifact_id=artifact_id)
+    return redirect(next_url)
+
+
+# ── Civilizations ─────────────────────────────────────────────────────────────
+@app.route("/civilizations")
+def civilizations():
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT c.*,
+                   COUNT(a.id) AS artifact_count
+            FROM civilizations c
+            LEFT JOIN artifacts a ON a.civilization_id = c.id
+            GROUP BY c.id
+            ORDER BY c.name
+        """).fetchall()
+    finally:
+        db.close()
+    return render_template("civilizations.html", civilizations=rows)
+
+
+@app.route("/civilizations/<int:civ_id>")
+def civilization_detail(civ_id):
+    db = get_db()
+    try:
+        civ = db.execute("SELECT * FROM civilizations WHERE id = ?", (civ_id,)).fetchone()
+        if civ is None:
+            abort(404)
+        sql, params = _artifact_query("a.civilization_id = ?", [civ_id])
+        artifact_list = db.execute(sql, params).fetchall()
+    finally:
+        db.close()
+    return render_template("artifacts.html",
+                           artifacts=artifact_list,
+                           civilizations=[], categories=[], periods=[],
+                           search="", selected_civ=str(civ_id),
+                           selected_cat="", selected_period="",
+                           page_title=f"Artifacts — {civ['name']} Civilization")
+
+
+# ── Categories ────────────────────────────────────────────────────────────────
+@app.route("/categories")
+def categories():
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT cat.*,
+                   COUNT(a.id) AS artifact_count
+            FROM categories cat
+            LEFT JOIN artifacts a ON a.category_id = cat.id
+            GROUP BY cat.id
+            ORDER BY cat.name
+        """).fetchall()
+    finally:
+        db.close()
+    return render_template("categories.html", categories=rows)
+
+
+@app.route("/categories/<int:cat_id>")
+def category_detail(cat_id):
+    db = get_db()
+    try:
+        cat = db.execute("SELECT * FROM categories WHERE id = ?", (cat_id,)).fetchone()
+        if cat is None:
+            abort(404)
+        sql, params = _artifact_query("a.category_id = ?", [cat_id])
+        artifact_list = db.execute(sql, params).fetchall()
+    finally:
+        db.close()
+    return render_template("artifacts.html",
+                           artifacts=artifact_list,
+                           civilizations=[], categories=[], periods=[],
+                           search="", selected_civ="",
+                           selected_cat=str(cat_id), selected_period="",
+                           page_title=f"Artifacts — {cat['name']}")
+
+
+# ── Error handlers ────────────────────────────────────────────────────────────
+@app.errorhandler(404)
+def not_found(e):
+    return render_template("404.html"), 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    return render_template("404.html", error_code=500,
+                           error_msg="Internal Server Error"), 500
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     initialize_database()
     app.run(debug=True)
