@@ -22,6 +22,26 @@ def initialize_database():
     """Create all tables and seed sample data if the DB is empty."""
     conn = get_db()
     try:
+        # Check and upgrade legacy schemas if incompatible columns are present
+        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+        if "civilizations" in tables:
+            civ_cols = [r[1] for r in conn.execute("PRAGMA table_info(civilizations)").fetchall()]
+            if "civilization_id" in civ_cols or "description" not in civ_cols:
+                conn.execute("DROP TABLE IF EXISTS favorites")
+                conn.execute("DROP TABLE IF EXISTS artifacts")
+                conn.execute("DROP TABLE IF EXISTS civilizations")
+        if "categories" in tables:
+            cat_cols = [r[1] for r in conn.execute("PRAGMA table_info(categories)").fetchall()]
+            if "category_id" in cat_cols or "description" not in cat_cols:
+                conn.execute("DROP TABLE IF EXISTS favorites")
+                conn.execute("DROP TABLE IF EXISTS artifacts")
+                conn.execute("DROP TABLE IF EXISTS categories")
+        if "artifacts" in tables:
+            art_cols = [r[1] for r in conn.execute("PRAGMA table_info(artifacts)").fetchall()]
+            if "civilization_id" not in art_cols or "category_id" not in art_cols:
+                conn.execute("DROP TABLE IF EXISTS favorites")
+                conn.execute("DROP TABLE IF EXISTS artifacts")
+        conn.commit()
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS civilizations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -207,16 +227,18 @@ def initialize_database():
         ]
 
         for a in artifacts:
-            conn.execute(
-                """INSERT OR IGNORE INTO artifacts
-                   (name, description, period, discovery_location, discovery_year,
-                    material, image_url, civilization_id, category_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                a
-            )
+            existing = conn.execute("SELECT id FROM artifacts WHERE name = ?", (a[0],)).fetchone()
+            if not existing:
+                conn.execute(
+                    """INSERT INTO artifacts
+                       (name, description, period, discovery_location, discovery_year,
+                        material, image_url, civilization_id, category_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    a
+                )
 
         conn.commit()
-        print("[DB] Database ready at: " + DATABASE)
+        print("[DB] Database ready: " + os.path.basename(DATABASE))
 
     except sqlite3.Error as e:
         print("[DB ERROR] " + str(e))
