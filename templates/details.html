@@ -1,54 +1,107 @@
-﻿<!DOCTYPE html>
+﻿```html
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>{{ artifact['name'] }} - Museum Artifact Explorer</title>
-  <meta name="description" content="{{ artifact['description'][:150] }}"/>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="/static/style.css"/>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>{{ artifact.artifact_name }} | MuseumVault</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body class="details-page">
-  <nav class="top-nav">
-    <a href="/" class="back-btn" id="back-home">&larr; Back to Collection</a>
-  </nav>
 
-  <main class="detail-container">
-    <div class="detail-image-wrap">
-      {% if artifact['image_url'] %}
-      <img src="{{ artifact['image_url'] }}" alt="{{ artifact['name'] }}" class="detail-image"/>
-      {% else %}
-      <div class="detail-image-placeholder">&#127963;</div>
-      {% endif %}
+<body>
+
+<header class="navbar">
+    <a href="/" class="logo">MUSEUM<span>VAULT</span></a>
+    <a href="/" class="nav-link">← Back to Collection</a>
+</header>
+
+<main class="details-container">
+
+    <a href="/" class="back-link">← All Artifacts</a>
+
+    <div class="details-layout">
+
+        <div class="details-image">
+            <img
+                src="{{ artifact.image_url }}"
+                alt="{{ artifact.artifact_name }}"
+                onerror="this.style.display='none'">
+        </div>
+
+        <div class="details-content">
+
+            <p class="eyebrow">
+                {{ artifact.civilization }} ·
+                {{ artifact.category_name }}
+            </p>
+
+            <h1>{{ artifact.artifact_name }}</h1>
+
+            <p class="details-description">
+                {{ artifact.description }}
+            </p>
+
+            <div class="metadata">
+
+                <div>
+                    <span>Historical Period</span>
+                    <strong>{{ artifact.historical_period }}</strong>
+                </div>
+
+                <div>
+                    <span>Region</span>
+                    <strong>{{ artifact.region or 'Unknown' }}</strong>
+                </div>
+
+                <div>
+                    <span>Discovery Location</span>
+                    <strong>
+                        {{ artifact.discovery_location or 'Unknown' }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Discovery Year</span>
+                    <strong>
+                        {{ artifact.discovery_year or 'Unknown' }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Estimated Age</span>
+                    <strong>
+                        {% if artifact.estimated_age %}
+                            Approximately {{ artifact.estimated_age }} years
+                        {% else %}
+                            Unknown
+                        {% endif %}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Current Condition</span>
+                    <strong>{{ artifact.condition or 'Unknown' }}</strong>
+                </div>
+
+            </div>
+
+            <a href="/" class="primary-button">
+                Explore More Artifacts
+            </a>
+
+        </div>
+
     </div>
 
-    <div class="detail-info">
-      <span class="detail-badge">{{ artifact['category'] }}</span>
-      <h1 class="detail-title">{{ artifact['name'] }}</h1>
-      <div class="detail-meta">
-        <div class="meta-item">
-          <span class="meta-label">Origin</span>
-          <span class="meta-value">{{ artifact['origin'] }}</span>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">Period</span>
-          <span class="meta-value">{% if artifact['year'] < 0 %}{{ artifact['year']|abs }} BC{% else %}{{ artifact['year'] }} AD{% endif %}</span>
-        </div>
-        <div class="meta-item">
-          <span class="meta-label">Category</span>
-          <span class="meta-value">{{ artifact['category'] }}</span>
-        </div>
-      </div>
-      <div class="detail-description">
-        <h2>About this Artifact</h2>
-        <p>{{ artifact['description'] }}</p>
-      </div>
-    </div>
-  </main>
+</main>
 
-  <footer class="site-footer">
-    <p>&copy; 2024 Museum Artifact Explorer &mdash; Bringing history to life</p>
-  </footer>
+<footer>
+    <p>MUSEUMVAULT · Preserving History Through Technology</p>
+</footer>
+
 </body>
 </html>
+```

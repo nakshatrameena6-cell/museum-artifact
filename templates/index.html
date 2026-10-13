@@ -1,61 +1,202 @@
-﻿<!DOCTYPE html>
+﻿```html
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Museum Artifact Explorer</title>
-  <meta name="description" content="Explore ancient and historic museum artifacts from around the world."/>
-  <link rel="preconnect" href="https://fonts.googleapis.com"/>
-  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet"/>
-  <link rel="stylesheet" href="/static/style.css"/>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Museum Artifact Explorer</title>
+
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
 </head>
+
 <body>
-  <header class="hero">
-    <div class="hero-overlay"></div>
-    <div class="hero-content">
-      <h1 class="hero-title">Museum Artifact Explorer</h1>
-      <p class="hero-subtitle">Discover the wonders of ancient civilizations</p>
-      <form class="search-form" method="GET" action="/">
-        <input type="text" name="search" id="search" placeholder="Search artifacts or origins..." value="{{ search }}" autocomplete="off"/>
-        <select name="category" id="category">
-          <option value="">All Categories</option>
-          {% for cat in categories %}
-          <option value="{{ cat['category'] }}" {% if category == cat['category'] %}selected{% endif %}>{{ cat['category'] }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit" id="search-btn">Search</button>
-      </form>
-    </div>
-  </header>
-  <main class="container">
-    <p class="result-count">{{ artifacts|length }} artifact(s) found</p>
-    <div class="artifact-grid">
-      {% for artifact in artifacts %}
-      <a href="/artifact/{{ artifact['id'] }}" class="card" id="artifact-{{ artifact['id'] }}">
-        <div class="card-img-wrap">
-          {% if artifact['image_url'] %}
-          <img src="{{ artifact['image_url'] }}" alt="{{ artifact['name'] }}" loading="lazy"/>
-          {% else %}
-          <div class="card-img-placeholder">&#127963;</div>
-          {% endif %}
-          <span class="card-badge">{{ artifact['category'] }}</span>
+
+<header class="navbar">
+    <a href="/" class="logo">MUSEUM<span>VAULT</span></a>
+    <a href="#collection" class="nav-link">Explore Collection</a>
+</header>
+
+<section class="hero">
+    <p class="eyebrow">DISCOVER THE PAST</p>
+
+    <h1>Every Artifact<br>Has a Story.</h1>
+
+    <p class="hero-text">
+        Explore remarkable objects from ancient civilizations
+        and discover the stories they carry.
+    </p>
+
+    <a href="#collection" class="primary-button">
+        Explore Artifacts ↓
+    </a>
+</section>
+
+<main class="container">
+
+    {% if artifact_of_day %}
+    <section class="featured">
+        <div>
+            <p class="eyebrow">FEATURED DISCOVERY</p>
+
+            <h2>Artifact of the Day</h2>
+
+            <h3>{{ artifact_of_day.artifact_name }}</h3>
+
+            <p>
+                {{ artifact_of_day.civilization }}
+                · {{ artifact_of_day.category_name }}
+            </p>
+
+            <a class="text-link"
+               href="{{ url_for('details',
+                                artifact_id=artifact_of_day.artifact_id) }}">
+                Discover its story →
+            </a>
         </div>
-        <div class="card-body">
-          <h2 class="card-title">{{ artifact['name'] }}</h2>
-          <p class="card-meta">{{ artifact['origin'] }} &bull; {% if artifact['year'] < 0 %}{{ artifact['year']|abs }} BC{% else %}{{ artifact['year'] }} AD{% endif %}</p>
-          <p class="card-desc">{{ artifact['description'][:100] }}{% if artifact['description']|length > 100 %}...{% endif %}</p>
+
+        <img
+            src="{{ artifact_of_day.image_url }}"
+            alt="{{ artifact_of_day.artifact_name }}"
+            onerror="this.style.display='none'">
+    </section>
+    {% endif %}
+
+    <section id="collection">
+
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">THE COLLECTION</p>
+                <h2>Explore Artifacts</h2>
+            </div>
+
+            <p>{{ artifacts|length }} results · {{ total }} total artifacts</p>
         </div>
-      </a>
-      {% else %}
-      <div class="empty-state">
-        <span>&#128269;</span>
-        <p>No artifacts found. Try a different search.</p>
-      </div>
-      {% endfor %}
-    </div>
-  </main>
-  <footer class="site-footer">
-    <p>&copy; 2024 Museum Artifact Explorer &mdash; Bringing history to life</p>
-  </footer>
+
+        <form method="GET" action="/" class="filter-panel">
+
+            <input
+                type="text"
+                name="search"
+                placeholder="Search artifacts..."
+                value="{{ search }}">
+
+            <select name="civilization">
+                <option value="">All Civilizations</option>
+
+                {% for c in civilizations %}
+                <option
+                    value="{{ c.civilization_id }}"
+                    {% if selected_civilization|string
+                          == c.civilization_id|string %}
+                    selected
+                    {% endif %}>
+                    {{ c.name }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <select name="category">
+                <option value="">All Categories</option>
+
+                {% for cat in categories %}
+                <option
+                    value="{{ cat.category_id }}"
+                    {% if selected_category|string
+                          == cat.category_id|string %}
+                    selected
+                    {% endif %}>
+                    {{ cat.category_name }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <select name="period">
+                <option value="">All Periods</option>
+
+                {% for p in periods %}
+                <option
+                    value="{{ p.period }}"
+                    {% if selected_period == p.period %}
+                    selected
+                    {% endif %}>
+                    {{ p.period }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <button type="submit" class="primary-button">
+                Search
+            </button>
+
+            <a href="/" class="reset-button">Reset</a>
+
+        </form>
+
+        <div class="artifact-grid">
+
+            {% for a in artifacts %}
+
+            <article class="artifact-card">
+
+                <a href="{{ url_for('details',
+                                    artifact_id=a.artifact_id) }}"
+                   class="image-link">
+
+                    <img
+                        src="{{ a.image_url }}"
+                        alt="{{ a.artifact_name }}"
+                        loading="lazy"
+                        onerror="this.style.display='none'">
+                </a>
+
+                <div class="card-content">
+
+                    <div class="tags">
+                        <span>{{ a.civilization }}</span>
+                        <span>{{ a.category_name }}</span>
+                    </div>
+
+                    <h3>{{ a.artifact_name }}</h3>
+
+                    <p>{{ a.description }}</p>
+
+                    <div class="card-footer">
+                        <span>~{{ a.estimated_age }} years old</span>
+
+                        <a href="{{ url_for(
+                            'details',
+                            artifact_id=a.artifact_id
+                        ) }}">
+                            View Details →
+                        </a>
+                    </div>
+
+                </div>
+
+            </article>
+
+            {% else %}
+
+            <div class="empty-state">
+                <h3>No artifacts found</h3>
+                <p>Try changing your search or filters.</p>
+                <a href="/" class="primary-button">View All Artifacts</a>
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+    </section>
+
+</main>
+
+<footer>
+    <p>MUSEUMVAULT · Preserving History Through Technology</p>
+</footer>
+
 </body>
 </html>
+```
