@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Categories | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="container">
+
+    <div class="page-header">
+        <p class="eyebrow">Artifact Classifications</p>
+        <h1>Museum Categories</h1>
+        <p style="color:var(--muted);max-width:650px;">
+            Classified by material, purpose, and artistic form. Browse through distinct archaeological categories preserved in our collection.
+        </p>
+    </div>
+
+    <div class="cat-grid">
+        {% set icons = {
+            'Pottery': '🏺',
+            'Sculpture': '🗿',
+            'Coins': '🪙',
+            'Tools': '🗡️',
+            'Jewellery': '👑',
+            'Inscriptions': '📜'
+        } %}
+        {% for cat in categories %}
+        <article class="cat-card">
+            <div class="cat-icon">{{ icons.get(cat.name, '🏛️') }}</div>
+            <h3>{{ cat.name }}</h3>
+            <p class="desc-text">{{ cat.description or 'Artifacts classified under this material and historical category.' }}</p>
+
+            <div style="margin-top:auto;padding-top:16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+                <div class="artifact-count">
+                    <strong>{{ cat.artifact_count }}</strong>
+                    <span>artifacts</span>
+                </div>
+                <a href="{{ url_for('category_detail', cat_id=cat.id) }}" class="btn btn-secondary btn-sm">
+                    Browse Category →
+                </a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+
+</main>
+{% endblock %}

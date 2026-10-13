@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}404 Not Found | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="container">
+    <div class="error-page">
+        <div class="error-code">{{ error_code or 404 }}</div>
+        <h2>{{ error_msg or "Artifact or Page Lost to Time" }}</h2>
+        <p>The artifact, civilization, or exhibit page you are searching for does not exist in our historical archives.</p>
+        <div style="display:flex;gap:12px;justify-content:center;">
+            <a href="{{ url_for('home') }}" class="btn btn-primary">Return to Museum Entrance</a>
+            <a href="{{ url_for('artifacts') }}" class="btn btn-secondary">Explore All Artifacts</a>
+        </div>
+    </div>
+</main>
+{% endblock %}

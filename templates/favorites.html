@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}My Saved Favorites | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="container">
+
+    <div class="page-header">
+        <p class="eyebrow">Curated Collection</p>
+        <h1>Saved Favorites</h1>
+        <p style="color:var(--muted);max-width:650px;">
+            Artifacts you have bookmarked for research and exploration.
+        </p>
+    </div>
+
+    {% if favorites %}
+    <div class="section-top" style="margin-bottom:22px;">
+        <p class="result-count">
+            <strong>{{ favorites|length }}</strong> saved artifact{% if favorites|length != 1 %}s{% endif %}
+        </p>
+    </div>
+
+    <div class="artifact-grid">
+        {% for a in favorites %}
+        <article class="artifact-card">
+            <a href="{{ url_for('artifact_detail', artifact_id=a.id) }}" style="display:block;">
+                {% if a.image_url %}
+                <img class="card-img"
+                     src="{{ a.image_url }}"
+                     alt="{{ a.name }}"
+                     loading="lazy"
+                     onerror="this.outerHTML='<div class=card-img-placeholder>🏺</div>'">
+                {% else %}
+                <div class="card-img-placeholder">🏺</div>
+                {% endif %}
+            </a>
+
+            <div class="card-body">
+                <div class="card-tags">
+                    <span class="tag">{{ a.civilization }}</span>
+                    <span class="tag">{{ a.category }}</span>
+                    <span class="tag" style="background:#fef2f2;color:#991b1b;">♥ Saved</span>
+                </div>
+                <h3>{{ a.name }}</h3>
+                <p class="desc">{{ a.description }}</p>
+            </div>
+
+            <div class="card-footer">
+                <form method="POST" action="{{ url_for('toggle_favorite', artifact_id=a.id) }}" style="display:inline;">
+                    <input type="hidden" name="next" value="{{ url_for('favorites') }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" style="color:#c0392b;border-color:#e2d9cc;padding:4px 8px;font-size:11px;">
+                        ✕ Remove
+                    </button>
+                </form>
+
+                <a href="{{ url_for('artifact_detail', artifact_id=a.id) }}" class="view-link">
+                    View Details →
+                </a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="empty-state">
+        <div class="icon">🤍</div>
+        <h3>No Favorites Saved Yet</h3>
+        <p>Browse through artifacts and click "♡ Save to Favorites" to keep your personalized list here.</p>
+        <a href="{{ url_for('artifacts') }}" class="btn btn-primary">Explore Artifacts</a>
+    </div>
+    {% endif %}
+
+</main>
+{% endblock %}
