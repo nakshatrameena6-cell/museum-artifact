@@ -1,0 +1,54 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{{ artifact['name'] }} - Museum Artifact Explorer</title>
+  <meta name="description" content="{{ artifact['description'][:150] }}"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body class="details-page">
+  <nav class="top-nav">
+    <a href="/" class="back-btn" id="back-home">&larr; Back to Collection</a>
+  </nav>
+
+  <main class="detail-container">
+    <div class="detail-image-wrap">
+      {% if artifact['image_url'] %}
+      <img src="{{ artifact['image_url'] }}" alt="{{ artifact['name'] }}" class="detail-image"/>
+      {% else %}
+      <div class="detail-image-placeholder">&#127963;</div>
+      {% endif %}
+    </div>
+
+    <div class="detail-info">
+      <span class="detail-badge">{{ artifact['category'] }}</span>
+      <h1 class="detail-title">{{ artifact['name'] }}</h1>
+      <div class="detail-meta">
+        <div class="meta-item">
+          <span class="meta-label">Origin</span>
+          <span class="meta-value">{{ artifact['origin'] }}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Period</span>
+          <span class="meta-value">{% if artifact['year'] < 0 %}{{ artifact['year']|abs }} BC{% else %}{{ artifact['year'] }} AD{% endif %}</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Category</span>
+          <span class="meta-value">{{ artifact['category'] }}</span>
+        </div>
+      </div>
+      <div class="detail-description">
+        <h2>About this Artifact</h2>
+        <p>{{ artifact['description'] }}</p>
+      </div>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <p>&copy; 2024 Museum Artifact Explorer &mdash; Bringing history to life</p>
+  </footer>
+</body>
+</html>

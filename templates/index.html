@@ -1,0 +1,61 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Museum Artifact Explorer</title>
+  <meta name="description" content="Explore ancient and historic museum artifacts from around the world."/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+  <header class="hero">
+    <div class="hero-overlay"></div>
+    <div class="hero-content">
+      <h1 class="hero-title">Museum Artifact Explorer</h1>
+      <p class="hero-subtitle">Discover the wonders of ancient civilizations</p>
+      <form class="search-form" method="GET" action="/">
+        <input type="text" name="search" id="search" placeholder="Search artifacts or origins..." value="{{ search }}" autocomplete="off"/>
+        <select name="category" id="category">
+          <option value="">All Categories</option>
+          {% for cat in categories %}
+          <option value="{{ cat['category'] }}" {% if category == cat['category'] %}selected{% endif %}>{{ cat['category'] }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit" id="search-btn">Search</button>
+      </form>
+    </div>
+  </header>
+  <main class="container">
+    <p class="result-count">{{ artifacts|length }} artifact(s) found</p>
+    <div class="artifact-grid">
+      {% for artifact in artifacts %}
+      <a href="/artifact/{{ artifact['id'] }}" class="card" id="artifact-{{ artifact['id'] }}">
+        <div class="card-img-wrap">
+          {% if artifact['image_url'] %}
+          <img src="{{ artifact['image_url'] }}" alt="{{ artifact['name'] }}" loading="lazy"/>
+          {% else %}
+          <div class="card-img-placeholder">&#127963;</div>
+          {% endif %}
+          <span class="card-badge">{{ artifact['category'] }}</span>
+        </div>
+        <div class="card-body">
+          <h2 class="card-title">{{ artifact['name'] }}</h2>
+          <p class="card-meta">{{ artifact['origin'] }} &bull; {% if artifact['year'] < 0 %}{{ artifact['year']|abs }} BC{% else %}{{ artifact['year'] }} AD{% endif %}</p>
+          <p class="card-desc">{{ artifact['description'][:100] }}{% if artifact['description']|length > 100 %}...{% endif %}</p>
+        </div>
+      </a>
+      {% else %}
+      <div class="empty-state">
+        <span>&#128269;</span>
+        <p>No artifacts found. Try a different search.</p>
+      </div>
+      {% endfor %}
+    </div>
+  </main>
+  <footer class="site-footer">
+    <p>&copy; 2024 Museum Artifact Explorer &mdash; Bringing history to life</p>
+  </footer>
+</body>
+</html>
