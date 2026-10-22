@@ -33,11 +33,16 @@ An interactive, responsive full-stack web application designed for exploring his
 ```text
 museum-artifact/
 ├── app.py                     # Flask application entry point and route handlers
-├── database.py                # Database initialization, schema creation, and seeding
-├── museum.db                  # SQLite database file (created automatically)
+├── database.py                # Database initialization, schema creation, triggers, and seeding
+├── test_app.py                # Comprehensive automated test suite
+├── queries.sql                # 14+ documented SQL queries (JOINs, Aggregates, M:N, Triggers)
+├── generate_er.py             # Script generating docs/er_diagram.png via matplotlib
 ├── requirements.txt           # Python package dependencies
 ├── README.md                  # Comprehensive documentation and project guide
-├── .gitignore                 # Files excluded from version control
+├── REPORT.md                  # Detailed project deliverables report
+├── .gitignore                 # Files excluded from version control (includes museum.db)
+├── docs/
+│   └── er_diagram.png         # High-resolution Entity-Relationship diagram
 ├── templates/                 # Jinja2 HTML templates
 │   ├── base.html              # Base layout with navbar, footer, flash alerts
 │   ├── index.html             # Homepage: Hero, Artifact of Day, Highlights, Stats
@@ -47,6 +52,8 @@ museum-artifact/
 │   ├── edit_artifact.html     # Edit artifact form with prefilled values
 │   ├── civilizations.html     # List of civilizations with artifact counts
 │   ├── categories.html        # List of categories with thematic icons & counts
+│   ├── exhibitions.html       # Exhibitions list with dates, curators, and artifact counts
+│   ├── exhibition_detail.html # Exhibition detail with curator and curated artifact cards
 │   ├── favorites.html         # User favorites collection
 │   └── 404.html               # Custom museum-themed 404/500 error page
 └── static/
@@ -54,21 +61,20 @@ museum-artifact/
     │   └── style.css          # Museum palette, typography, responsive grid
     ├── js/
     │   └── script.js          # Mobile navbar, auto-dismiss alerts, image fallbacks
-    ├── images/                # Local asset storage
-    └── style.css              # Compatibility stylesheet redirect
+    └── images/                # Local asset storage
 ```
 
 ---
 
 ## 4. Database Schema & Design
 
-The database contains **four interrelated tables**:
+The relational database enforces data integrity through **7 core tables, 1 audit table, 1 view, 1 trigger, and 2 performance indexes**:
 
 ### Table 1: `civilizations`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique civilization identifier |
-| `name` | TEXT | NOT NULL, UNIQUE | Name of civilization (e.g. Roman, Chola) |
+| `name` | TEXT | NOT NULL, UNIQUE | Civilization name (e.g., Indus Valley, Egyptian) |
 | `region` | TEXT | | Geographical origin region |
 | `period` | TEXT | | Epoch or historical date span |
 | `description` | TEXT | | Cultural and historical summary |
@@ -77,23 +83,24 @@ The database contains **four interrelated tables**:
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique category identifier |
-| `name` | TEXT | NOT NULL, UNIQUE | Category title (e.g. Pottery, Coins) |
+| `name` | TEXT | NOT NULL, UNIQUE | Category title (e.g., Pottery, Sculpture, Coins) |
 | `description` | TEXT | | Functional/material description |
 
 ### Table 3: `artifacts`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
 | `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique artifact identifier |
-| `name` | TEXT | NOT NULL | Artifact title |
+| `name` | TEXT | NOT NULL, CHECK(length(trim(name)) > 0) | Artifact title |
 | `description` | TEXT | NOT NULL | Detailed background & provenance |
 | `period` | TEXT | | Historical period or dynasty |
 | `discovery_location`| TEXT | | Excavation / discovery site |
-| `discovery_year` | INTEGER | | Excavation year (BCE supported via negative values) |
+| `discovery_year` | INTEGER | CHECK(discovery_year IS NULL OR discovery_year <= 2026) | Excavation year (BCE supported via negative values) |
 | `material` | TEXT | | Material composition (Bronze, Gold, etc.) |
 | `image_url` | TEXT | | Public image link or local path |
-| `civilization_id` | INTEGER | FOREIGN KEY -> `civilizations(id)` | Associated civilization |
-| `category_id` | INTEGER | FOREIGN KEY -> `categories(id)` | Associated category |
+| `civilization_id` | INTEGER | NOT NULL, FOREIGN KEY -> `civilizations(id)` | Associated civilization |
+| `category_id` | INTEGER | NOT NULL, FOREIGN KEY -> `categories(id)` | Associated category |
 | `created_at` | TEXT | DEFAULT `(datetime('now'))` | Timestamp of database addition |
+| **Composite** | UNIQUE | `UNIQUE(name, civilization_id)` | Prevents duplicate artifact titles within a civilization |
 
 ### Table 4: `favorites`
 | Column | Type | Constraints | Description |
@@ -102,15 +109,61 @@ The database contains **four interrelated tables**:
 | `artifact_id` | INTEGER | NOT NULL, UNIQUE, FOREIGN KEY -> `artifacts(id)` ON DELETE CASCADE | Reference to favorited artifact |
 | `created_at` | TEXT | DEFAULT `(datetime('now'))` | Timestamp when added to favorites |
 
+### Table 5: `curators`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique curator identifier |
+| `name` | TEXT | NOT NULL | Curator's full name |
+| `email` | TEXT | NOT NULL, UNIQUE | Contact email address |
+| `specialization` | TEXT | | Field of historical / archaeological expertise |
+
+### Table 6: `exhibitions`
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique exhibition identifier |
+| `title` | TEXT | NOT NULL, UNIQUE | Exhibition title |
+| `start_date` | TEXT | NOT NULL | Opening date (YYYY-MM-DD) |
+| `end_date` | TEXT | NOT NULL, CHECK(end_date >= start_date) | Concluding date (must be >= start date) |
+| `curator_id` | INTEGER | FOREIGN KEY -> `curators(id)` ON DELETE SET NULL | Curator in charge of the exhibition |
+
+### Table 7: `exhibition_artifacts` (Many-to-Many M:N Association)
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `exhibition_id` | INTEGER | NOT NULL, FOREIGN KEY -> `exhibitions(id)` ON DELETE CASCADE | Target exhibition |
+| `artifact_id` | INTEGER | NOT NULL, FOREIGN KEY -> `artifacts(id)` ON DELETE CASCADE | Associated artifact |
+| **Primary Key** | Composite | `PRIMARY KEY (exhibition_id, artifact_id)` | Unique exhibition-to-artifact mapping |
+
+### Table 8: `deleted_artifacts_log` (Audit Trail)
+| Column | Type | Constraints | Description |
+|---|---|---|---|
+| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique audit log ID |
+| `artifact_id` | INTEGER | NOT NULL | ID of deleted artifact |
+| `name` | TEXT | NOT NULL | Title of deleted artifact |
+| `deleted_at` | TEXT | DEFAULT `(datetime('now'))` | Deletion timestamp |
+
+### View: `artifact_details`
+Denormalized SQL View joining `artifacts`, `civilizations`, and `categories` to provide pre-joined metadata (`civilization`, `region`, `civ_period`, `category`) without redundant join syntax in queries.
+
+### Trigger: `trg_artifact_deleted`
+`AFTER DELETE` trigger on table `artifacts`. Automatically logs the deleted artifact's ID, title, and timestamp into `deleted_artifacts_log`.
+
+### Indexes:
+- `idx_artifacts_name`: Index on `artifacts(name)` for optimized search operations.
+- `idx_artifacts_civ_cat`: Composite index on `artifacts(civilization_id, category_id)` for dual-filter queries.
+
 ---
 
 ## 5. Entity-Relationship (ER) Diagram
 
 ```mermaid
 erDiagram
-    CIVILIZATIONS ||--o{ ARTIFACTS : "produces / contains"
-    CATEGORIES ||--o{ ARTIFACTS : "classifies"
-    ARTIFACTS ||--o| FAVORITES : "saved as"
+    CIVILIZATIONS ||--o{ ARTIFACTS : "originates (1:N)"
+    CATEGORIES ||--o{ ARTIFACTS : "classifies (1:N)"
+    ARTIFACTS ||--o| FAVORITES : "bookmarked as (1:1)"
+    CURATORS ||--o{ EXHIBITIONS : "curates (1:N)"
+    EXHIBITIONS ||--o{ EXHIBITION_ARTIFACTS : "contains (1:N)"
+    ARTIFACTS ||--o{ EXHIBITION_ARTIFACTS : "displayed in (1:N)"
+    ARTIFACTS ||--o{ DELETED_ARTIFACTS_LOG : "audited by trigger"
 
     CIVILIZATIONS {
         INTEGER id PK
@@ -128,30 +181,86 @@ erDiagram
 
     ARTIFACTS {
         INTEGER id PK
-        TEXT name
-        TEXT description
+        TEXT name "REQ, CHECK"
+        TEXT description "REQ"
         TEXT period
         TEXT discovery_location
-        INTEGER discovery_year
+        INTEGER discovery_year "CHECK <= 2026"
         TEXT material
         TEXT image_url
-        INTEGER civilization_id FK
-        INTEGER category_id FK
+        INTEGER civilization_id FK "NOT NULL"
+        INTEGER category_id FK "NOT NULL"
         TEXT created_at
     }
 
     FAVORITES {
         INTEGER id PK
-        INTEGER artifact_id FK, UK
+        INTEGER artifact_id FK, UK "ON DELETE CASCADE"
         TEXT created_at
+    }
+
+    CURATORS {
+        INTEGER id PK
+        TEXT name "REQ"
+        TEXT email UK "REQ"
+        TEXT specialization
+    }
+
+    EXHIBITIONS {
+        INTEGER id PK
+        TEXT title UK "REQ"
+        TEXT start_date "REQ"
+        TEXT end_date "REQ, CHECK >= start_date"
+        INTEGER curator_id FK "ON DELETE SET NULL"
+    }
+
+    EXHIBITION_ARTIFACTS {
+        INTEGER exhibition_id PK, FK "ON DELETE CASCADE"
+        INTEGER artifact_id PK, FK "ON DELETE CASCADE"
+    }
+
+    DELETED_ARTIFACTS_LOG {
+        INTEGER id PK
+        INTEGER artifact_id
+        TEXT name
+        TEXT deleted_at
     }
 ```
 
-### Relational Constraints Enforced:
-1. **One-to-Many (`civilizations` -> `artifacts`)**: One civilization can have many artifacts.
-2. **One-to-Many (`categories` -> `artifacts`)**: One category can have many artifacts.
-3. **One-to-One (`artifacts` -> `favorites`)**: Each artifact can appear in the favorites table at most once via the `UNIQUE` constraint on `favorites.artifact_id`.
-4. **Cascading Deletions**: Deleting an artifact removes its entry from `favorites` automatically via `ON DELETE CASCADE`.
+A standalone high-resolution diagram is available at [`docs/er_diagram.png`](file:///c:/Users/AIML%2027/OneDrive/文档/museum-artifact/docs/er_diagram.png).
+
+---
+
+## 6. Database Normalization (1NF / 2NF / 3NF)
+
+The database schema is rigorously structured according to relational normalization principles:
+
+1. **First Normal Form (1NF)**:
+   - Every column contains atomic (indivisible) values.
+   - Repeating groups and array lists within single fields (e.g., storing comma-separated artifact lists in exhibitions) are strictly prohibited.
+   - Every table possesses an unambiguous Primary Key (`id` or composite `(exhibition_id, artifact_id)`).
+
+2. **Second Normal Form (2NF)**:
+   - The schema satisfies 1NF.
+   - All non-key attributes are fully functionally dependent on the entire primary key.
+   - In `exhibition_artifacts`, the junction table only stores the composite foreign keys `(exhibition_id, artifact_id)`. Specific exhibition metadata (e.g., dates) resides exclusively in `exhibitions`, eliminating partial key dependencies.
+
+3. **Third Normal Form (3NF)**:
+   - The schema satisfies 2NF.
+   - Non-key attributes are non-transitively dependent on primary keys (no attribute depends on another non-key attribute).
+   - Civilization regions and periods are stored in `civilizations`, not duplicated across each artifact record in `artifacts`.
+   - Curator contact information and specializations are stored in `curators`, referenced by foreign key in `exhibitions`.
+
+| Table | Normal Form | Key Design Rationale |
+|---|---|---|
+| `civilizations` | 3NF | Eliminates transitive dependencies between civilization name, region, and epoch. |
+| `categories` | 3NF | Isolates artifact classification taxonomy from physical artifacts. |
+| `artifacts` | 3NF | Core entity with atomic attributes; references civilizations and categories via non-null FKs. |
+| `favorites` | 3NF | 1:1 user bookmark mapping with cascading deletion integrity. |
+| `curators` | 3NF | Isolates staff profiles from exhibition dates and venues. |
+| `exhibitions` | 3NF | Encapsulates temporal exhibition events; links to curator via foreign key. |
+| `exhibition_artifacts` | 3NF | Pure junction entity modeling the M:N relationship between exhibitions and artifacts. |
+| `deleted_artifacts_log` | 1NF/Audit | Append-only historical log populated by database trigger upon artifact deletion. |
 
 ---
 

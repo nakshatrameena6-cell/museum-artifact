@@ -24,26 +24,30 @@ app.secret_key = secret_key
 
 
 # ── Helper ───────────────────────────────────────────────────────────────────
-def _artifact_query(extra_where="", params=None, order="a.name"):
-    """Return the base artifact SELECT with optional WHERE clause."""
+def _artifact_query(extra_where="", params=None, order="ad.name"):
+    """Return the base artifact SELECT using artifact_details view with optional WHERE clause."""
     sql = """
         SELECT
-            a.id, a.name, a.description, a.period, a.discovery_location,
-            a.discovery_year, a.material, a.image_url, a.created_at,
-            a.civilization_id, a.category_id,
-            c.name   AS civilization,
-            c.region AS region,
-            c.period AS civ_period,
-            cat.name AS category,
+            ad.id, ad.name, ad.description, ad.period, ad.discovery_location,
+            ad.discovery_year, ad.material, ad.image_url, ad.created_at,
+            ad.civilization_id, ad.category_id,
+            ad.civilization,
+            ad.region,
+            ad.civ_period,
+            ad.category,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END AS is_favorite
-        FROM artifacts a
-        JOIN  civilizations c   ON a.civilization_id = c.id
-        JOIN  categories    cat ON a.category_id     = cat.id
-        LEFT JOIN favorites f   ON f.artifact_id     = a.id
+        FROM artifact_details ad
+        LEFT JOIN favorites f ON f.artifact_id = ad.id
     """
     if extra_where:
-        sql += " WHERE " + extra_where
-    sql += " ORDER BY " + order
+        w = extra_where
+        w = w.replace("c.name", "ad.civilization")
+        w = w.replace("cat.name", "ad.category")
+        w = w.replace("c.period", "ad.civ_period")
+        w = w.replace("a.", "ad.")
+        sql += " WHERE " + w
+    order_clause = order.replace("a.", "ad.")
+    sql += " ORDER BY " + order_clause
     return sql, (params or [])
 
 
@@ -435,6 +439,61 @@ def category_detail(cat_id):
                            search="", selected_civ="",
                            selected_cat=str(cat_id), selected_period="",
                            page_title=f"Artifacts — {cat['name']}")
+
+
+# ── Exhibitions ───────────────────────────────────────────────────────────────
+@app.route("/exhibitions")
+def exhibitions():
+    db = get_db()
+    try:
+        sql = """
+            SELECT
+                e.id, e.title, e.start_date, e.end_date,
+                c.name AS curator_name, c.specialization AS curator_specialization,
+                COUNT(ea.artifact_id) AS artifact_count
+            FROM exhibitions e
+            LEFT JOIN curators c ON e.curator_id = c.id
+            LEFT JOIN exhibition_artifacts ea ON e.id = ea.exhibition_id
+            GROUP BY e.id
+            ORDER BY e.start_date ASC
+        """
+        rows = db.execute(sql).fetchall()
+    finally:
+        db.close()
+    return render_template("exhibitions.html", exhibitions=rows)
+
+
+@app.route("/exhibitions/<int:exh_id>")
+def exhibition_detail(exh_id):
+    db = get_db()
+    try:
+        exh = db.execute("""
+            SELECT
+                e.id, e.title, e.start_date, e.end_date,
+                c.id AS curator_id, c.name AS curator_name,
+                c.email AS curator_email, c.specialization AS curator_specialization
+            FROM exhibitions e
+            LEFT JOIN curators c ON e.curator_id = c.id
+            WHERE e.id = ?
+        """, (exh_id,)).fetchone()
+        if exh is None:
+            abort(404)
+
+        sql = """
+            SELECT
+                ad.*,
+                CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END AS is_favorite
+            FROM exhibition_artifacts ea
+            JOIN artifact_details ad ON ea.artifact_id = ad.id
+            LEFT JOIN favorites f ON f.artifact_id = ad.id
+            WHERE ea.exhibition_id = ?
+            ORDER BY ad.name ASC
+        """
+        artifact_list = db.execute(sql, (exh_id,)).fetchall()
+    finally:
+        db.close()
+
+    return render_template("exhibition_detail.html", exhibition=exh, artifacts=artifact_list)
 
 
 # ── Error handlers ────────────────────────────────────────────────────────────

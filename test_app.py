@@ -240,6 +240,234 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
         self.assertEqual(res_cat.status_code, 200)
         self.assertIn("Sculpture", res_cat.data.decode("utf-8"))
 
+    def test_09_empty_name_validation(self):
+        """Test that submitting an empty or whitespace-only name is rejected."""
+        conn = database.get_db()
+        civ_id = conn.execute("SELECT id FROM civilizations LIMIT 1").fetchone()[0]
+        cat_id = conn.execute("SELECT id FROM categories LIMIT 1").fetchone()[0]
+        initial_count = conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0]
+        conn.close()
+
+        res = self.client.post("/artifact/add", data={
+            "name": "   ",
+            "description": "Valid description.",
+            "civilization_id": str(civ_id),
+            "category_id": str(cat_id)
+        }, follow_redirects=True)
+
+        self.assertEqual(res.status_code, 200)
+        html = res.data.decode("utf-8")
+        self.assertIn("Artifact name is required.", html)
+
+        conn = database.get_db()
+        new_count = conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0]
+        conn.close()
+        self.assertEqual(initial_count, new_count, "Artifact with empty name should not be saved")
+
+    def test_10_missing_civilization_validation(self):
+        """Test that submitting without a civilization is rejected."""
+        conn = database.get_db()
+        cat_id = conn.execute("SELECT id FROM categories LIMIT 1").fetchone()[0]
+        conn.close()
+
+        res = self.client.post("/artifact/add", data={
+            "name": "Valid Name",
+            "description": "Valid description.",
+            "civilization_id": "",
+            "category_id": str(cat_id)
+        }, follow_redirects=True)
+
+        self.assertEqual(res.status_code, 200)
+        html = res.data.decode("utf-8")
+        self.assertIn("Please select a civilization.", html)
+
+    def test_11_duplicate_name_rejection(self):
+        """Test that adding an artifact with duplicate (name, civilization_id) is rejected."""
+        conn = database.get_db()
+        existing = conn.execute("SELECT name, civilization_id, category_id FROM artifacts LIMIT 1").fetchone()
+        conn.close()
+
+        res = self.client.post("/artifact/add", data={
+            "name": existing["name"],
+            "description": "Different description.",
+            "civilization_id": str(existing["civilization_id"]),
+            "category_id": str(existing["category_id"])
+        }, follow_redirects=True)
+
+        self.assertEqual(res.status_code, 200)
+        html = res.data.decode("utf-8")
+        self.assertIn("already exists for this civilization", html)
+
+    def test_12_open_redirect_blocked(self):
+        """Test that open redirects via malicious next URLs are sanitized and blocked."""
+        conn = database.get_db()
+        art_id = conn.execute("SELECT id FROM artifacts LIMIT 1").fetchone()[0]
+        conn.close()
+
+        # External full URL attack
+        res_ext = self.client.post(
+            f"/artifact/{art_id}/favorite/toggle",
+            data={"next": "https://malicious-site.com"},
+            follow_redirects=False
+        )
+        self.assertEqual(res_ext.status_code, 302)
+        self.assertFalse(res_ext.location.startswith("https://malicious-site.com"))
+        self.assertEqual(res_ext.location, f"/artifact/{art_id}")
+
+        # Protocol-relative URL attack
+        res_proto = self.client.post(
+            f"/artifact/{art_id}/favorite/toggle",
+            data={"next": "//evil.com/phish"},
+            follow_redirects=False
+        )
+        self.assertEqual(res_proto.status_code, 302)
+        self.assertFalse(res_proto.location.startswith("//evil.com"))
+        self.assertEqual(res_proto.location, f"/artifact/{art_id}")
+
+    def test_13_check_constraint_future_year(self):
+        """Test CHECK constraints: discovery_year <= 2026 and length(trim(name)) > 0."""
+        conn = database.get_db()
+        civ_id = conn.execute("SELECT id FROM civilizations LIMIT 1").fetchone()[0]
+        cat_id = conn.execute("SELECT id FROM categories LIMIT 1").fetchone()[0]
+
+        # 1. Year > 2026 must violate CHECK constraint
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute(
+                """INSERT INTO artifacts (name, description, discovery_year, civilization_id, category_id)
+                   VALUES ('Futuristic Relic', 'From the future', 2099, ?, ?)""",
+                (civ_id, cat_id)
+            )
+
+        # 2. Blank whitespace-only name must violate CHECK constraint
+        with self.assertRaises(sqlite3.IntegrityError):
+            conn.execute(
+                """INSERT INTO artifacts (name, description, discovery_year, civilization_id, category_id)
+                   VALUES ('   ', 'Empty name relic', 2020, ?, ?)""",
+                (civ_id, cat_id)
+            )
+
+        conn.close()
+
+    def test_14_trigger_logs_on_delete(self):
+        """Test that deleting an artifact fires the AFTER DELETE trigger and records in audit log."""
+        conn = database.get_db()
+        civ_id = conn.execute("SELECT id FROM civilizations LIMIT 1").fetchone()[0]
+        cat_id = conn.execute("SELECT id FROM categories LIMIT 1").fetchone()[0]
+
+        # Insert a distinct artifact to delete
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO artifacts (name, description, civilization_id, category_id)
+               VALUES ('Trigger Test Relic', 'To be deleted for trigger audit test', ?, ?)""",
+            (civ_id, cat_id)
+        )
+        art_id = cur.lastrowid
+        conn.commit()
+
+        # Delete artifact via app endpoint
+        res = self.client.post(f"/artifact/{art_id}/delete", follow_redirects=True)
+        self.assertEqual(res.status_code, 200)
+
+        # Verify entry in deleted_artifacts_log
+        log_entry = conn.execute(
+            "SELECT * FROM deleted_artifacts_log WHERE artifact_id = ?",
+            (art_id,)
+        ).fetchone()
+        conn.close()
+
+        self.assertIsNotNone(log_entry, "Trigger did not create a row in deleted_artifacts_log")
+        self.assertEqual(log_entry["name"], "Trigger Test Relic")
+        self.assertIsNotNone(log_entry["deleted_at"], "Log entry timestamp must not be null")
+
+    def test_15_exhibition_pages(self):
+        """Test /exhibitions list page and /exhibitions/<id> detail page return HTTP 200."""
+        # 1. Exhibitions list
+        res_list = self.client.get("/exhibitions")
+        self.assertEqual(res_list.status_code, 200)
+        html_list = res_list.data.decode("utf-8")
+        self.assertIn("Featured Exhibitions", html_list)
+        self.assertIn("Echoes of the Indus", html_list)
+
+        # 2. Exhibition detail
+        conn = database.get_db()
+        exh = conn.execute("SELECT id, title FROM exhibitions LIMIT 1").fetchone()
+        conn.close()
+        self.assertIsNotNone(exh)
+
+        res_detail = self.client.get(f"/exhibitions/{exh['id']}")
+        self.assertEqual(res_detail.status_code, 200)
+        html_detail = res_detail.data.decode("utf-8")
+        self.assertIn(exh["title"], html_detail)
+        self.assertIn("Curated by", html_detail)
+
+    def test_16_many_to_many_cascade(self):
+        """Test many-to-many ON DELETE CASCADE on exhibition_artifacts."""
+        conn = database.get_db()
+        curator = conn.execute("SELECT id FROM curators LIMIT 1").fetchone()
+        civ_id  = conn.execute("SELECT id FROM civilizations LIMIT 1").fetchone()[0]
+        cat_id  = conn.execute("SELECT id FROM categories LIMIT 1").fetchone()[0]
+
+        # Create temporary exhibition and artifact
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO exhibitions (title, start_date, end_date, curator_id) VALUES ('Temp Expo', '2026-01-01', '2026-02-01', ?)",
+            (curator["id"],)
+        )
+        temp_exh_id = cur.lastrowid
+
+        cur.execute(
+            "INSERT INTO artifacts (name, description, civilization_id, category_id) VALUES ('Cascade Test Art', 'Desc', ?, ?)",
+            (civ_id, cat_id)
+        )
+        temp_art_id = cur.lastrowid
+
+        # Link in junction table
+        cur.execute(
+            "INSERT INTO exhibition_artifacts (exhibition_id, artifact_id) VALUES (?, ?)",
+            (temp_exh_id, temp_art_id)
+        )
+        conn.commit()
+
+        # Verify link exists
+        link = conn.execute(
+            "SELECT * FROM exhibition_artifacts WHERE exhibition_id=? AND artifact_id=?",
+            (temp_exh_id, temp_art_id)
+        ).fetchone()
+        self.assertIsNotNone(link)
+
+        # Delete exhibition -> junction row must cascade delete
+        conn.execute("DELETE FROM exhibitions WHERE id=?", (temp_exh_id,))
+        conn.commit()
+
+        link_after_exh = conn.execute(
+            "SELECT * FROM exhibition_artifacts WHERE exhibition_id=? AND artifact_id=?",
+            (temp_exh_id, temp_art_id)
+        ).fetchone()
+        self.assertIsNone(link_after_exh, "exhibition_artifacts row was not cascaded on exhibition delete")
+
+        # Now test deleting artifact cascades as well
+        cur.execute(
+            "INSERT INTO exhibitions (title, start_date, end_date, curator_id) VALUES ('Temp Expo 2', '2026-01-01', '2026-02-01', ?)",
+            (curator["id"],)
+        )
+        temp_exh_id2 = cur.lastrowid
+        cur.execute(
+            "INSERT INTO exhibition_artifacts (exhibition_id, artifact_id) VALUES (?, ?)",
+            (temp_exh_id2, temp_art_id)
+        )
+        conn.commit()
+
+        conn.execute("DELETE FROM artifacts WHERE id=?", (temp_art_id,))
+        conn.commit()
+
+        link_after_art = conn.execute(
+            "SELECT * FROM exhibition_artifacts WHERE exhibition_id=? AND artifact_id=?",
+            (temp_exh_id2, temp_art_id)
+        ).fetchone()
+        self.assertIsNone(link_after_art, "exhibition_artifacts row was not cascaded on artifact delete")
+        conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+
