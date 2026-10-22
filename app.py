@@ -7,10 +7,16 @@ Routes: home, artifacts, artifact detail, add, edit, delete, favorites,
 
 import os
 import random
+from pathlib import Path
+from dotenv import load_dotenv
 import psycopg2
 from psycopg2.errors import UniqueViolation, CheckViolation
 from flask import (Flask, render_template, request, redirect,
                    url_for, flash, abort, jsonify)
+
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(ENV_PATH)
+
 from database import get_db, initialize_database
 
 # ── App setup ───────────────────────────────────────────────────────────────

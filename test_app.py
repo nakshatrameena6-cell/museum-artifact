@@ -6,14 +6,16 @@ Runs automated tests using Flask test client with an isolated temporary PostgreS
 import os
 import unittest
 import uuid
+from pathlib import Path
 import psycopg2
 from psycopg2.errors import UniqueViolation, CheckViolation
 from dotenv import load_dotenv
 
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(ENV_PATH)
+
 import app
 import database
-
-load_dotenv()
 
 
 class MuseumArtifactExplorerTestCase(unittest.TestCase):
@@ -21,7 +23,8 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
     def setUpClass(cls):
         # Create an isolated temporary schema for the test suite
         cls.test_schema = f"test_museum_{uuid.uuid4().hex[:12]}"
-        cls.raw_conn = psycopg2.connect(os.environ["DATABASE_URL"], sslmode="require")
+        db_url = database.validate_database_url(os.environ.get("DATABASE_URL"))
+        cls.raw_conn = psycopg2.connect(db_url, sslmode="require")
         with cls.raw_conn.cursor() as cur:
             cur.execute(f'CREATE SCHEMA "{cls.test_schema}"')
         cls.raw_conn.commit()

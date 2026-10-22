@@ -5,14 +5,32 @@ Handles PostgreSQL database connection, schema initialization, and sample data s
 
 import os
 import re
+from pathlib import Path
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
-load_dotenv()
+ENV_PATH = Path(__file__).resolve().parent / ".env"
+load_dotenv(ENV_PATH)
 
 # Configurable search path schema, primarily used for test suite isolation
 SCHEMA = None
+
+
+def validate_database_url(db_url):
+    """Validate DATABASE_URL ensuring it is present and not an unedited placeholder."""
+    if not db_url or not db_url.strip():
+        raise ValueError(
+            "DATABASE_URL environment variable is not set. "
+            "Please edit .env in the project root with your actual Supabase connection string."
+        )
+    placeholders = ["YOUR_PASSWORD", "YOUR_PROJECT_REF", "YOUR_REGION", "[", "]"]
+    if any(p in db_url for p in placeholders):
+        raise ValueError(
+            "DATABASE_URL in .env contains placeholder text (e.g. YOUR_PASSWORD, YOUR_PROJECT_REF) or square brackets. "
+            "Please edit .env in the project root and replace placeholders with your actual Supabase credentials."
+        )
+    return db_url.strip()
 
 
 class CursorWrapper:
@@ -80,10 +98,8 @@ class DatabaseWrapper:
 
 def get_db(schema=None):
     """Return a wrapped PostgreSQL database connection using DATABASE_URL (sslmode=require)."""
-    load_dotenv()
-    db_url = os.environ.get("DATABASE_URL")
-    if not db_url:
-        raise ValueError("DATABASE_URL environment variable is not set.")
+    load_dotenv(ENV_PATH)
+    db_url = validate_database_url(os.environ.get("DATABASE_URL"))
     conn = psycopg2.connect(db_url, sslmode="require")
     active_schema = schema or SCHEMA
     if active_schema:

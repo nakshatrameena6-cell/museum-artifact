@@ -301,13 +301,19 @@ Copy-Item .env.example .env
 ```
 Open `.env` and fill in your connection string and security key:
 ```env
-DATABASE_URL=postgresql://postgres.yourprojectref:yourpassword@aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require
-SECRET_KEY=your-custom-production-secret-key
+DATABASE_URL=postgresql://postgres.YOUR_PROJECT_REF:YOUR_PASSWORD@aws-0-YOUR_REGION.pooler.supabase.com:5432/postgres
+SECRET_KEY=replace-me
 FLASK_DEBUG=0
 ```
 > **Security Reminder**: The `.env` file contains sensitive credentials and is strictly excluded via `.gitignore`. Never commit `.env` to GitHub.
 
-### Step 4: Create and Activate Virtual Environment
+### Step 4: Verify Environment & Connectivity (check_env.py)
+Run the diagnostic check to verify that `.env` is properly positioned and that Supabase is reachable (secrets are masked):
+```powershell
+python check_env.py
+```
+
+### Step 5: Create and Activate Virtual Environment
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -319,31 +325,31 @@ python -m venv .venv
 > .\.venv\Scripts\Activate.ps1
 > ```
 
-### Step 5: Install Required Dependencies
+### Step 6: Install Required Dependencies
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-### Step 6: Initialize Database & Seed Data
+### Step 7: Initialize Database & Seed Data
 Run the database initialization script:
 ```powershell
 python database.py
 ```
 This connects to Supabase, creates all 8 tables with `GENERATED ALWAYS AS IDENTITY` primary keys, the `artifact_details` view, the `log_deleted_artifact()` trigger function and trigger, enables Row Level Security (RLS) on all tables, and idempotently seeds civilizations, categories, artifacts, curators, exhibitions, and junction links using `ON CONFLICT DO NOTHING`.
 
-### Step 7: Run Automated Tests
+### Step 8: Run Automated Tests
 Execute the comprehensive test suite:
 ```powershell
 python -m unittest test_app.py
 ```
 > **Test Isolation**: The test suite dynamically generates an isolated temporary schema (e.g., `test_museum_<uuid>`), sets the PostgreSQL `search_path`, validates all 16 test cases without touching production data, and cleans up with `DROP SCHEMA CASCADE` upon completion.
 
-### Step 8: Start the Flask Application
+### Step 9: Start the Flask Application
 ```powershell
 python app.py
 ```
 
-### Step 9: Access the Application
+### Step 10: Access the Application
 Open your web browser and navigate to:
 👉 **[http://127.0.0.1:5000](http://127.0.0.1:5000)**
 
