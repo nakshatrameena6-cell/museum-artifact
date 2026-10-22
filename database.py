@@ -22,26 +22,6 @@ def initialize_database():
     """Create all tables and seed sample data if the DB is empty."""
     conn = get_db()
     try:
-        # Check and upgrade legacy schemas if incompatible columns are present
-        tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
-        if "civilizations" in tables:
-            civ_cols = [r[1] for r in conn.execute("PRAGMA table_info(civilizations)").fetchall()]
-            if "civilization_id" in civ_cols or "description" not in civ_cols:
-                conn.execute("DROP TABLE IF EXISTS favorites")
-                conn.execute("DROP TABLE IF EXISTS artifacts")
-                conn.execute("DROP TABLE IF EXISTS civilizations")
-        if "categories" in tables:
-            cat_cols = [r[1] for r in conn.execute("PRAGMA table_info(categories)").fetchall()]
-            if "category_id" in cat_cols or "description" not in cat_cols:
-                conn.execute("DROP TABLE IF EXISTS favorites")
-                conn.execute("DROP TABLE IF EXISTS artifacts")
-                conn.execute("DROP TABLE IF EXISTS categories")
-        if "artifacts" in tables:
-            art_cols = [r[1] for r in conn.execute("PRAGMA table_info(artifacts)").fetchall()]
-            if "civilization_id" not in art_cols or "category_id" not in art_cols:
-                conn.execute("DROP TABLE IF EXISTS favorites")
-                conn.execute("DROP TABLE IF EXISTS artifacts")
-        conn.commit()
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS civilizations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,11 +46,14 @@ def initialize_database():
                 discovery_year INTEGER,
                 material TEXT,
                 image_url TEXT,
-                civilization_id INTEGER,
-                category_id INTEGER,
+                civilization_id INTEGER NOT NULL,
+                category_id INTEGER NOT NULL,
                 created_at TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (civilization_id) REFERENCES civilizations(id),
-                FOREIGN KEY (category_id) REFERENCES categories(id)
+                FOREIGN KEY (category_id) REFERENCES categories(id),
+                CHECK (discovery_year IS NULL OR discovery_year <= 2026),
+                CHECK (length(trim(name)) > 0),
+                UNIQUE (name, civilization_id)
             );
 
             CREATE TABLE IF NOT EXISTS favorites (
@@ -79,6 +62,70 @@ def initialize_database():
                 created_at TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS curators (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL UNIQUE,
+                specialization TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS exhibitions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL UNIQUE,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                curator_id INTEGER,
+                FOREIGN KEY (curator_id) REFERENCES curators(id) ON DELETE SET NULL,
+                CHECK (end_date >= start_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS exhibition_artifacts (
+                exhibition_id INTEGER NOT NULL,
+                artifact_id INTEGER NOT NULL,
+                PRIMARY KEY (exhibition_id, artifact_id),
+                FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE,
+                FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS deleted_artifacts_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                artifact_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                deleted_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_artifacts_name ON artifacts (name);
+            CREATE INDEX IF NOT EXISTS idx_artifacts_civ_cat ON artifacts (civilization_id, category_id);
+
+            CREATE VIEW IF NOT EXISTS artifact_details AS
+            SELECT
+                a.id,
+                a.name,
+                a.description,
+                a.period,
+                a.discovery_location,
+                a.discovery_year,
+                a.material,
+                a.image_url,
+                a.created_at,
+                a.civilization_id,
+                a.category_id,
+                c.name AS civilization,
+                c.region AS region,
+                c.period AS civ_period,
+                cat.name AS category
+            FROM artifacts a
+            JOIN civilizations c ON a.civilization_id = c.id
+            JOIN categories cat ON a.category_id = cat.id;
+
+            CREATE TRIGGER IF NOT EXISTS trg_artifact_deleted
+            AFTER DELETE ON artifacts
+            FOR EACH ROW
+            BEGIN
+                INSERT INTO deleted_artifacts_log (artifact_id, name, deleted_at)
+                VALUES (OLD.id, OLD.name, datetime('now'));
+            END;
         """)
         conn.commit()
 
@@ -221,13 +268,13 @@ def initialize_database():
                 "A pure gold coin stamped with the Chola tiger emblem and Tamil inscription, "
                 "used in temple treasury transactions and long-distance maritime trade.",
                 "Medieval (985-1014 CE)", "Thanjavur District, Tamil Nadu", 1960, "Gold",
-                "https://images.unsplash.com/photo-1605792657660-596af9009e82?w=800",
+                "https://images.unsplash.com/photo-1621416894569-0f39ed31d247?w=800",
                 civ_id("Chola"), cat_id("Coins")
             ),
         ]
 
         for a in artifacts:
-            existing = conn.execute("SELECT id FROM artifacts WHERE name = ?", (a[0],)).fetchone()
+            existing = conn.execute("SELECT id FROM artifacts WHERE name = ? AND civilization_id = ?", (a[0], a[7])).fetchone()
             if not existing:
                 conn.execute(
                     """INSERT INTO artifacts

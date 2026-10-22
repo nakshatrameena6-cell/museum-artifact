@@ -7,15 +7,20 @@ Routes: home, artifacts, artifact detail, add, edit, delete, favorites,
 
 import os
 import random
+import sqlite3
 from flask import (Flask, render_template, request, redirect,
                    url_for, flash, abort, jsonify)
 from database import get_db, initialize_database
 
 # ── App setup ───────────────────────────────────────────────────────────────
 app = Flask(__name__)
-# IMPORTANT: Set SECRET_KEY in your environment for production.
-# Falls back to a development key when running locally.
-app.secret_key = os.environ.get("SECRET_KEY", "dev-museum-secret-key-change-in-prod")
+# Set SECRET_KEY in environment for production; warn if dev fallback is used.
+secret_key = os.environ.get("SECRET_KEY")
+if not secret_key:
+    print("[WARNING] SECRET_KEY not found in environment; using insecure development fallback!")
+    secret_key = "dev-museum-secret-key-change-in-prod"
+app.secret_key = secret_key
+
 
 
 # ── Helper ───────────────────────────────────────────────────────────────────
@@ -178,18 +183,28 @@ def add_artifact():
                     flash(e, "error")
             else:
                 year_val = int(discovery_year) if discovery_year.lstrip("-").isdigit() else None
-                db.execute(
-                    """INSERT INTO artifacts
-                       (name, description, period, discovery_location, discovery_year,
-                        material, image_url, civilization_id, category_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (name, description, period or None, discovery_loc or None,
-                     year_val, material or None, image_url or None,
-                     int(civilization_id), int(category_id))
-                )
-                db.commit()
-                flash(f'"{name}" has been added to the collection!', "success")
-                return redirect(url_for("artifacts"))
+                try:
+                    db.execute(
+                        """INSERT INTO artifacts
+                           (name, description, period, discovery_location, discovery_year,
+                            material, image_url, civilization_id, category_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (name, description, period or None, discovery_loc or None,
+                         year_val, material or None, image_url or None,
+                         int(civilization_id), int(category_id))
+                    )
+                    db.commit()
+                    flash(f'"{name}" has been added to the collection!', "success")
+                    return redirect(url_for("artifacts"))
+                except sqlite3.IntegrityError as e:
+                    db.rollback()
+                    err_msg = str(e).lower()
+                    if "unique" in err_msg:
+                        flash(f'An artifact named "{name}" already exists for this civilization.', "error")
+                    elif "check" in err_msg:
+                        flash("Validation failed: Artifact name cannot be blank and discovery year must be \u2264 2026.", "error")
+                    else:
+                        flash(f"Database constraint error: {e}", "error")
 
         return render_template("add_artifact.html",
                                civilizations=civilizations,
@@ -237,19 +252,29 @@ def edit_artifact(artifact_id):
                     flash(e, "error")
             else:
                 year_val = int(discovery_year) if discovery_year.lstrip("-").isdigit() else None
-                db.execute(
-                    """UPDATE artifacts SET
-                       name=?, description=?, period=?, discovery_location=?,
-                       discovery_year=?, material=?, image_url=?,
-                       civilization_id=?, category_id=?
-                       WHERE id=?""",
-                    (name, description, period or None, discovery_loc or None,
-                     year_val, material or None, image_url or None,
-                     int(civilization_id), int(category_id), artifact_id)
-                )
-                db.commit()
-                flash(f'"{name}" has been updated successfully!', "success")
-                return redirect(url_for("artifact_detail", artifact_id=artifact_id))
+                try:
+                    db.execute(
+                        """UPDATE artifacts SET
+                           name=?, description=?, period=?, discovery_location=?,
+                           discovery_year=?, material=?, image_url=?,
+                           civilization_id=?, category_id=?
+                           WHERE id=?""",
+                        (name, description, period or None, discovery_loc or None,
+                         year_val, material or None, image_url or None,
+                         int(civilization_id), int(category_id), artifact_id)
+                    )
+                    db.commit()
+                    flash(f'"{name}" has been updated successfully!', "success")
+                    return redirect(url_for("artifact_detail", artifact_id=artifact_id))
+                except sqlite3.IntegrityError as e:
+                    db.rollback()
+                    err_msg = str(e).lower()
+                    if "unique" in err_msg:
+                        flash(f'An artifact named "{name}" already exists for this civilization.', "error")
+                    elif "check" in err_msg:
+                        flash("Validation failed: Artifact name cannot be blank and discovery year must be \u2264 2026.", "error")
+                    else:
+                        flash(f"Database constraint error: {e}", "error")
 
         return render_template("edit_artifact.html",
                                artifact=artifact,
@@ -330,8 +355,11 @@ def toggle_favorite(artifact_id):
     if request.accept_mimetypes.accept_json and not request.accept_mimetypes.accept_html:
         return jsonify({"action": action})
 
-    # Otherwise redirect back
-    next_url = request.form.get("next") or url_for("artifact_detail", artifact_id=artifact_id)
+    # Otherwise redirect back safely
+    default_url = url_for("artifact_detail", artifact_id=artifact_id)
+    next_url = request.form.get("next")
+    if not next_url or not (next_url.startswith("/") and not next_url.startswith("//")):
+        next_url = default_url
     return redirect(next_url)
 
 
@@ -424,4 +452,5 @@ def server_error(e):
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     initialize_database()
-    app.run(debug=True)
+    debug_mode = os.environ.get("FLASK_DEBUG", "0").strip().lower() in ("1", "true", "yes")
+    app.run(debug=debug_mode)

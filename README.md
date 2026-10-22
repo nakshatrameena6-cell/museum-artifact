@@ -24,7 +24,7 @@ An interactive, responsive full-stack web application designed for exploring his
 - **Database**: SQLite3 (via Python standard library `sqlite3`)
 - **Templating**: Flask Jinja2
 - **Frontend**: Semantic HTML5, Vanilla CSS3 (custom CSS design system with Google Fonts *Playfair Display* & *Inter*), Modern Vanilla JavaScript (ES6+)
-- **Development Tooling**: Windows PowerShell / Antigravity IDE
+- **Development Tooling**: Windows PowerShell / Modern Web Browser
 
 ---
 
@@ -160,7 +160,7 @@ erDiagram
 ### Step 1: Open Terminal in Project Directory
 Navigate to the repository folder:
 ```powershell
-cd "c:\Users\AIML 27\OneDrive\文档\museum-artifact"
+cd museum-artifact
 ```
 
 ### Step 2: Create and Activate Virtual Environment
