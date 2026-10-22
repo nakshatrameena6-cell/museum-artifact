@@ -455,7 +455,7 @@ def exhibitions():
             FROM exhibitions e
             LEFT JOIN curators c ON e.curator_id = c.id
             LEFT JOIN exhibition_artifacts ea ON e.id = ea.exhibition_id
-            GROUP BY e.id
+            GROUP BY e.id, e.title, e.start_date, e.end_date, c.name, c.specialization
             ORDER BY e.start_date ASC
         """
         rows = db.execute(sql).fetchall()

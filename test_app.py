@@ -213,10 +213,10 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO artifacts (name, description, civilization_id, category_id)
-               VALUES ('Fav Test Artifact', 'Desc', ?, ?)""",
+               VALUES ('Fav Test Artifact', 'Desc', ?, ?) RETURNING id""",
             (civ_id, cat_id)
         )
-        art_id = cur.lastrowid
+        art_id = cur.fetchone()[0]
         conn.commit()
         conn.close()
 
@@ -361,6 +361,7 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
                    VALUES ('Futuristic Relic', 'From the future', 2099, ?, ?)""",
                 (civ_id, cat_id)
             )
+        conn.rollback()
 
         # 2. Blank whitespace-only name must violate CHECK constraint
         with self.assertRaises((CheckViolation, psycopg2.IntegrityError)):
@@ -369,7 +370,7 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
                    VALUES ('   ', 'Empty name relic', 2020, ?, ?)""",
                 (civ_id, cat_id)
             )
-
+        conn.rollback()
         conn.close()
 
     def test_14_trigger_logs_on_delete(self):
@@ -382,10 +383,10 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
         cur = conn.cursor()
         cur.execute(
             """INSERT INTO artifacts (name, description, civilization_id, category_id)
-               VALUES ('Trigger Test Relic', 'To be deleted for trigger audit test', ?, ?)""",
+               VALUES ('Trigger Test Relic', 'To be deleted for trigger audit test', ?, ?) RETURNING id""",
             (civ_id, cat_id)
         )
-        art_id = cur.lastrowid
+        art_id = cur.fetchone()[0]
         conn.commit()
 
         # Delete artifact via app endpoint
@@ -434,16 +435,16 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
         # Create temporary exhibition and artifact
         cur = conn.cursor()
         cur.execute(
-            "INSERT INTO exhibitions (title, start_date, end_date, curator_id) VALUES ('Temp Expo', '2026-01-01', '2026-02-01', ?)",
+            "INSERT INTO exhibitions (title, start_date, end_date, curator_id) VALUES ('Temp Expo', '2026-01-01', '2026-02-01', ?) RETURNING id",
             (curator["id"],)
         )
-        temp_exh_id = cur.lastrowid
+        temp_exh_id = cur.fetchone()[0]
 
         cur.execute(
-            "INSERT INTO artifacts (name, description, civilization_id, category_id) VALUES ('Cascade Test Art', 'Desc', ?, ?)",
+            "INSERT INTO artifacts (name, description, civilization_id, category_id) VALUES ('Cascade Test Art', 'Desc', ?, ?) RETURNING id",
             (civ_id, cat_id)
         )
-        temp_art_id = cur.lastrowid
+        temp_art_id = cur.fetchone()[0]
 
         # Link in junction table
         cur.execute(
@@ -471,10 +472,10 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
 
         # Now test deleting artifact cascades as well
         cur.execute(
-            "INSERT INTO exhibitions (title, start_date, end_date, curator_id) VALUES ('Temp Expo 2', '2026-01-01', '2026-02-01', ?)",
+            "INSERT INTO exhibitions (title, start_date, end_date, curator_id) VALUES ('Temp Expo 2', '2026-01-01', '2026-02-01', ?) RETURNING id",
             (curator["id"],)
         )
-        temp_exh_id2 = cur.lastrowid
+        temp_exh_id2 = cur.fetchone()[0]
         cur.execute(
             "INSERT INTO exhibition_artifacts (exhibition_id, artifact_id) VALUES (?, ?)",
             (temp_exh_id2, temp_art_id)

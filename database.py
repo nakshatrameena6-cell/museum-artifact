@@ -16,32 +16,12 @@ SCHEMA = None
 
 
 class CursorWrapper:
-    """Wrapper around psycopg2.extras.DictCursor supporting row['col'], row[0], and lastrowid."""
+    """Wrapper around psycopg2.extras.DictCursor supporting row['col'] and row[0]."""
     def __init__(self, cur):
         self._cur = cur
-        self.lastrowid = None
 
     def execute(self, sql, params=None):
         pg_sql = sql.replace("?", "%s")
-        trimmed = pg_sql.strip()
-
-        # Intercept INSERT statements (except junction tables) to retrieve lastrowid if needed
-        is_insert = re.match(r'^\s*INSERT\s+INTO\s+(?!exhibition_artifacts\b)(\w+)', trimmed, re.IGNORECASE)
-        has_returning = re.search(r'\bRETURNING\b', trimmed, re.IGNORECASE)
-        if is_insert and not has_returning:
-            pg_sql_returning = trimmed.rstrip(";") + " RETURNING id"
-            try:
-                if params is not None:
-                    self._cur.execute(pg_sql_returning, tuple(params))
-                else:
-                    self._cur.execute(pg_sql_returning)
-                res = self._cur.fetchone()
-                self.lastrowid = res[0] if res else None
-                return self
-            except Exception:
-                # If table doesn't have an id or fails, fall back to executing standard query
-                pass
-
         if params is not None:
             self._cur.execute(pg_sql, tuple(params))
         else:
