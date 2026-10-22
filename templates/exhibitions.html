@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Exhibitions | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="container">
+
+    <div class="page-header">
+        <p class="eyebrow">Curated Collections</p>
+        <h1>Featured Exhibitions</h1>
+        <p style="color:var(--muted);max-width:650px;">
+            Discover specially curated galleries that unite timeless artifacts, connecting cross-cultural narratives and historical eras under expert curation.
+        </p>
+    </div>
+
+    <div class="civ-grid">
+        {% for e in exhibitions %}
+        <article class="civ-card">
+            <span class="period-badge">{{ e.start_date }} &ndash; {{ e.end_date }}</span>
+            <h3>{{ e.title }}</h3>
+            <p class="region">
+                <strong>Curator:</strong> {{ e.curator_name or 'Staff Curator' }}
+                {% if e.curator_specialization %}
+                <br><span style="font-size:0.85rem;color:var(--muted);">{{ e.curator_specialization }}</span>
+                {% endif %}
+            </p>
+            <p class="desc-text">
+                Special exhibition bringing together authentic antiquities and historical records to highlight key eras of human civilization.
+            </p>
+
+            <div style="margin-top:auto;padding-top:16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
+                <div class="artifact-count">
+                    <strong>{{ e.artifact_count }}</strong>
+                    <span>artifacts</span>
+                </div>
+                <a href="{{ url_for('exhibition_detail', exh_id=e.id) }}" class="btn btn-secondary btn-sm">
+                    Explore Gallery →
+                </a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+
+</main>
+{% endblock %}

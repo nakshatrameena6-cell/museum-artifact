@@ -285,6 +285,85 @@ def initialize_database():
                 )
 
         conn.commit()
+
+        # ── Seed curators ───────────────────────────────────────────────────
+        curators = [
+            ("Dr. Evelyn Reed", "e.reed@museum.org", "Ancient Mediterranean & Near Eastern Antiquities"),
+            ("Dr. Rajesh Sharma", "r.sharma@museum.org", "Indus Valley & South Asian Archaeology"),
+            ("Prof. Amara Mansour", "a.mansour@museum.org", "Dynastic Egypt & Nile Civilizations"),
+        ]
+        for cur in curators:
+            conn.execute(
+                "INSERT OR IGNORE INTO curators (name, email, specialization) VALUES (?, ?, ?)",
+                cur
+            )
+        conn.commit()
+
+        def curator_id(email):
+            row = conn.execute("SELECT id FROM curators WHERE email = ?", (email,)).fetchone()
+            return row[0] if row else None
+
+        # ── Seed exhibitions ────────────────────────────────────────────────
+        exhibitions = [
+            (
+                "Echoes of the Indus: Dawn of Urbanity",
+                "2026-03-01",
+                "2026-06-30",
+                curator_id("r.sharma@museum.org")
+            ),
+            (
+                "Treasures of the Nile: Gold & Eternity",
+                "2026-04-15",
+                "2026-09-15",
+                curator_id("a.mansour@museum.org")
+            ),
+            (
+                "Imperial Grandeur: Rome and the Classical World",
+                "2026-05-01",
+                "2026-10-31",
+                curator_id("e.reed@museum.org")
+            ),
+        ]
+        for exh in exhibitions:
+            conn.execute(
+                "INSERT OR IGNORE INTO exhibitions (title, start_date, end_date, curator_id) VALUES (?, ?, ?, ?)",
+                exh
+            )
+        conn.commit()
+
+        def exh_id(title):
+            row = conn.execute("SELECT id FROM exhibitions WHERE title = ?", (title,)).fetchone()
+            return row[0] if row else None
+
+        def art_id(name):
+            row = conn.execute("SELECT id FROM artifacts WHERE name = ?", (name,)).fetchone()
+            return row[0] if row else None
+
+        # ── Seed exhibition_artifacts (many-to-many links) ──────────────────
+        links = [
+            # Echoes of the Indus
+            ("Echoes of the Indus: Dawn of Urbanity", "Mohenjo-daro Dancing Girl"),
+            ("Echoes of the Indus: Dawn of Urbanity", "Indus Valley Terracotta Figurine"),
+            ("Echoes of the Indus: Dawn of Urbanity", "Indus Seal with Script"),
+            # Treasures of the Nile
+            ("Treasures of the Nile: Gold & Eternity", "Rosetta Stone Inscription"),
+            ("Treasures of the Nile: Gold & Eternity", "Canopic Jar of Qebehsenuef"),
+            ("Treasures of the Nile: Gold & Eternity", "Egyptian Gold Pectoral"),
+            # Imperial Grandeur
+            ("Imperial Grandeur: Rome and the Classical World", "Roman Silver Denarius"),
+            ("Imperial Grandeur: Rome and the Classical World", "Roman Garum Amphora"),
+            ("Imperial Grandeur: Rome and the Classical World", "Roman Legionary Gladius"),
+            ("Imperial Grandeur: Rome and the Classical World", "Athenian Black-Figure Amphora"),
+        ]
+        for title, art_name in links:
+            eid = exh_id(title)
+            aid = art_id(art_name)
+            if eid and aid:
+                conn.execute(
+                    "INSERT OR IGNORE INTO exhibition_artifacts (exhibition_id, artifact_id) VALUES (?, ?)",
+                    (eid, aid)
+                )
+        conn.commit()
         print("[DB] Database ready: " + os.path.basename(DATABASE))
 
     except sqlite3.Error as e:

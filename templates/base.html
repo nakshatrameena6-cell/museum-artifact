@@ -38,6 +38,8 @@
                    class="{% if request.endpoint in ['civilizations','civilization_detail'] %}active{% endif %}">Civilizations</a></li>
             <li><a href="{{ url_for('categories') }}"
                    class="{% if request.endpoint in ['categories','category_detail'] %}active{% endif %}">Categories</a></li>
+            <li><a href="{{ url_for('exhibitions') }}"
+                   class="{% if request.endpoint in ['exhibitions','exhibition_detail'] %}active{% endif %}">Exhibitions</a></li>
             <li><a href="{{ url_for('favorites') }}"
                    class="{% if request.endpoint == 'favorites' %}active{% endif %}">Favorites ♥</a></li>
             <li><a href="{{ url_for('add_artifact') }}" class="btn btn-primary btn-sm"

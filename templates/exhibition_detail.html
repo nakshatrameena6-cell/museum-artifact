@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ exhibition.title }} | MuseumVault{% endblock %}
+
+{% block content %}
+<main class="container">
+
+    <div style="margin-bottom:20px;">
+        <a href="{{ url_for('exhibitions') }}" class="btn btn-secondary btn-sm">← Back to All Exhibitions</a>
+    </div>
+
+    <div class="page-header" style="border-bottom:1px solid var(--border);padding-bottom:24px;margin-bottom:32px;">
+        <span class="period-badge" style="display:inline-block;margin-bottom:12px;">
+            Exhibition Dates: {{ exhibition.start_date }} &ndash; {{ exhibition.end_date }}
+        </span>
+        <h1 style="margin-top:6px;">{{ exhibition.title }}</h1>
+        <div style="margin-top:16px;background:var(--card-bg, #fff);border:1px solid var(--border);border-radius:6px;padding:16px 20px;max-width:700px;">
+            <p style="margin:0 0 6px;font-weight:600;color:var(--text);">
+                Curated by {{ exhibition.curator_name or 'Museum Curatorial Department' }}
+            </p>
+            {% if exhibition.curator_specialization %}
+            <p style="margin:0 0 6px;color:var(--muted);font-size:0.95rem;">
+                <strong>Specialization:</strong> {{ exhibition.curator_specialization }}
+            </p>
+            {% endif %}
+            {% if exhibition.curator_email %}
+            <p style="margin:0;color:var(--muted);font-size:0.9rem;">
+                <strong>Contact:</strong> <a href="mailto:{{ exhibition.curator_email }}" style="color:var(--accent);">{{ exhibition.curator_email }}</a>
+            </p>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="section-top" style="margin-bottom:22px;">
+        <p class="result-count">
+            <strong>{{ artifacts|length }}</strong> artifact{% if artifacts|length != 1 %}s{% endif %} on display in this exhibition
+        </p>
+    </div>
+
+    <!-- ── Artifacts in Exhibition Grid ─────────────────────── -->
+    {% if artifacts %}
+    <div class="artifact-grid">
+        {% for a in artifacts %}
+        <article class="artifact-card">
+            <a href="{{ url_for('artifact_detail', artifact_id=a.id) }}" style="display:block;">
+                {% if a.image_url %}
+                <img class="card-img"
+                     src="{{ a.image_url }}"
+                     alt="{{ a.name }}"
+                     loading="lazy"
+                     onerror="this.outerHTML='<div class=card-img-placeholder>🏺</div>'">
+                {% else %}
+                <div class="card-img-placeholder">🏺</div>
+                {% endif %}
+            </a>
+
+            <div class="card-body">
+                <div class="card-tags">
+                    <span class="tag">{{ a.civilization }}</span>
+                    <span class="tag">{{ a.category }}</span>
+                    {% if a.is_favorite %}<span class="tag" style="background:#fef2f2;color:#991b1b;">♥ Saved</span>{% endif %}
+                </div>
+                <h3>{{ a.name }}</h3>
+                <p class="desc">{{ a.description }}</p>
+            </div>
+
+            <div class="card-footer">
+                <span class="period">{{ a.period or '—' }}</span>
+                <a href="{{ url_for('artifact_detail', artifact_id=a.id) }}" class="view-link">
+                    View Details →
+                </a>
+            </div>
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div style="text-align:center;padding:48px 20px;border:1px dashed var(--border);border-radius:6px;background:var(--card-bg);">
+        <p style="font-size:1.1rem;color:var(--muted);margin:0;">No artifacts currently linked to this exhibition.</p>
+    </div>
+    {% endif %}
+
+</main>
+{% endblock %}
