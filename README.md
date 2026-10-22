@@ -1,19 +1,23 @@
 # Museum Artifact Explorer
 
-An interactive, responsive full-stack web application designed for exploring historical museum artifacts across ancient civilizations, periods, and classifications. Built with **Python Flask**, **SQLite**, and modern **Vanilla HTML5/CSS3/JavaScript**.
+An interactive, responsive full-stack web application designed for exploring historical museum artifacts across ancient civilizations, periods, and classifications. Built with **Python Flask**, **PostgreSQL** hosted on **Supabase** (connected via **psycopg2** plain SQL), and modern **Vanilla HTML5/CSS3/JavaScript**.
 
 ---
 
 ## 1. Project Overview & Objectives
 
 **Museum Artifact Explorer** is developed for a College Database Management System (DBMS) project. The project demonstrates:
-- Relational database modeling with **SQLite**.
-- Integrity constraints: Primary Keys, Foreign Keys, Unique constraints, Cascading Deletes (`ON DELETE CASCADE`), and check constraints.
-- Foreign key enforcement with `PRAGMA foreign_keys = ON`.
-- Parameterized SQL queries to prevent SQL injection vulnerabilities.
-- Multi-table `JOIN` operations across artifacts, civilizations, categories, and favorites.
-- Full CRUD functionality (Create, Read, Update, Delete) on artifacts.
-- Live searching, multi-criteria filtering, and user favoriting.
+- Relational database modeling with **PostgreSQL** hosted on **Supabase**.
+- Primary keys with `GENERATED ALWAYS AS IDENTITY`, timestamps with `TIMESTAMP DEFAULT CURRENT_TIMESTAMP`, and `DATE` types for events.
+- Integrity constraints: Primary Keys, Foreign Keys, Unique constraints, Cascading Deletes (`ON DELETE CASCADE`), and Check constraints.
+- PL/pgSQL procedural trigger function `log_deleted_artifact()` auditing artifact deletions into `deleted_artifacts_log`.
+- Denormalized SQL View `artifact_details` providing pre-joined metadata.
+- Row Level Security (RLS) enabled on every table to protect data from public exposure via Supabase Data APIs.
+- Parameterized SQL queries (`%s` placeholders via psycopg2 wrapper) to prevent SQL injection.
+- Case-insensitive search using PostgreSQL `ILIKE`.
+- Multi-table `JOIN` operations across artifacts, civilizations, categories, exhibitions, and favorites.
+- Full CRUD functionality (Create, Read, Update, Delete) on artifacts with psycopg2 `UniqueViolation` and `CheckViolation` error handling and transaction rollback.
+- Automated testing with schema-level isolation (dynamic temporary test schema per test run, never modifying real data).
 - An aesthetically refined museum theme (warm beige, cream, dark brown, and muted gold palette).
 
 ---
@@ -21,10 +25,13 @@ An interactive, responsive full-stack web application designed for exploring his
 ## 2. Technologies Used
 
 - **Backend**: Python 3, Flask
-- **Database**: SQLite3 (via Python standard library `sqlite3`)
+- **Database**: PostgreSQL 15+ (Hosted on Supabase)
+- **Database Driver**: `psycopg2-binary` (plain SQL, parameter conversion, DictCursor row support, no Supabase SDK)
+- **Environment Management**: `python-dotenv`
+- **Security**: Supabase Row Level Security (RLS) enabled on all tables; Open-redirect sanitization; Secret key configuration
 - **Templating**: Flask Jinja2
 - **Frontend**: Semantic HTML5, Vanilla CSS3 (custom CSS design system with Google Fonts *Playfair Display* & *Inter*), Modern Vanilla JavaScript (ES6+)
-- **Development Tooling**: Windows PowerShell / Modern Web Browser
+- **Testing**: Python `unittest` with dynamic PostgreSQL test schemas (`CREATE SCHEMA`, `search_path`, `DROP SCHEMA CASCADE`)
 
 ---
 
@@ -68,12 +75,12 @@ museum-artifact/
 
 ## 4. Database Schema & Design
 
-The relational database enforces data integrity through **7 core tables, 1 audit table, 1 view, 1 trigger, and 2 performance indexes**:
+The PostgreSQL relational database enforces data integrity through **7 core tables, 1 audit table, 1 view, 1 trigger function, 1 trigger, 2 performance indexes, and Row Level Security (RLS) on all tables**:
 
 ### Table 1: `civilizations`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique civilization identifier |
+| `id` | INT | GENERATED ALWAYS AS IDENTITY PRIMARY KEY | Unique civilization identifier |
 | `name` | TEXT | NOT NULL, UNIQUE | Civilization name (e.g., Indus Valley, Egyptian) |
 | `region` | TEXT | | Geographical origin region |
 | `period` | TEXT | | Epoch or historical date span |
@@ -82,37 +89,37 @@ The relational database enforces data integrity through **7 core tables, 1 audit
 ### Table 2: `categories`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique category identifier |
+| `id` | INT | GENERATED ALWAYS AS IDENTITY PRIMARY KEY | Unique category identifier |
 | `name` | TEXT | NOT NULL, UNIQUE | Category title (e.g., Pottery, Sculpture, Coins) |
 | `description` | TEXT | | Functional/material description |
 
 ### Table 3: `artifacts`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique artifact identifier |
+| `id` | INT | GENERATED ALWAYS AS IDENTITY PRIMARY KEY | Unique artifact identifier |
 | `name` | TEXT | NOT NULL, CHECK(length(trim(name)) > 0) | Artifact title |
 | `description` | TEXT | NOT NULL | Detailed background & provenance |
 | `period` | TEXT | | Historical period or dynasty |
 | `discovery_location`| TEXT | | Excavation / discovery site |
-| `discovery_year` | INTEGER | CHECK(discovery_year IS NULL OR discovery_year <= 2026) | Excavation year (BCE supported via negative values) |
+| `discovery_year` | INT | CHECK(discovery_year IS NULL OR discovery_year <= 2026) | Excavation year (BCE supported via negative values) |
 | `material` | TEXT | | Material composition (Bronze, Gold, etc.) |
 | `image_url` | TEXT | | Public image link or local path |
-| `civilization_id` | INTEGER | NOT NULL, FOREIGN KEY -> `civilizations(id)` | Associated civilization |
-| `category_id` | INTEGER | NOT NULL, FOREIGN KEY -> `categories(id)` | Associated category |
-| `created_at` | TEXT | DEFAULT `(datetime('now'))` | Timestamp of database addition |
+| `civilization_id` | INT | NOT NULL, REFERENCES `civilizations(id)` | Associated civilization foreign key |
+| `category_id` | INT | NOT NULL, REFERENCES `categories(id)` | Associated category foreign key |
+| `created_at` | TIMESTAMP | DEFAULT `CURRENT_TIMESTAMP` | Timestamp of database addition |
 | **Composite** | UNIQUE | `UNIQUE(name, civilization_id)` | Prevents duplicate artifact titles within a civilization |
 
 ### Table 4: `favorites`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique favorite identifier |
-| `artifact_id` | INTEGER | NOT NULL, UNIQUE, FOREIGN KEY -> `artifacts(id)` ON DELETE CASCADE | Reference to favorited artifact |
-| `created_at` | TEXT | DEFAULT `(datetime('now'))` | Timestamp when added to favorites |
+| `id` | INT | GENERATED ALWAYS AS IDENTITY PRIMARY KEY | Unique favorite identifier |
+| `artifact_id` | INT | NOT NULL, UNIQUE, REFERENCES `artifacts(id)` ON DELETE CASCADE | Reference to favorited artifact |
+| `created_at` | TIMESTAMP | DEFAULT `CURRENT_TIMESTAMP` | Timestamp when added to favorites |
 
 ### Table 5: `curators`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique curator identifier |
+| `id` | INT | GENERATED ALWAYS AS IDENTITY PRIMARY KEY | Unique curator identifier |
 | `name` | TEXT | NOT NULL | Curator's full name |
 | `email` | TEXT | NOT NULL, UNIQUE | Contact email address |
 | `specialization` | TEXT | | Field of historical / archaeological expertise |
@@ -120,32 +127,35 @@ The relational database enforces data integrity through **7 core tables, 1 audit
 ### Table 6: `exhibitions`
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique exhibition identifier |
+| `id` | INT | GENERATED ALWAYS AS IDENTITY PRIMARY KEY | Unique exhibition identifier |
 | `title` | TEXT | NOT NULL, UNIQUE | Exhibition title |
-| `start_date` | TEXT | NOT NULL | Opening date (YYYY-MM-DD) |
-| `end_date` | TEXT | NOT NULL, CHECK(end_date >= start_date) | Concluding date (must be >= start date) |
-| `curator_id` | INTEGER | FOREIGN KEY -> `curators(id)` ON DELETE SET NULL | Curator in charge of the exhibition |
+| `start_date` | DATE | NOT NULL | Opening date |
+| `end_date` | DATE | NOT NULL, CHECK(end_date >= start_date) | Concluding date (must be >= start date) |
+| `curator_id` | INT | REFERENCES `curators(id)` ON DELETE SET NULL | Curator in charge of the exhibition |
 
 ### Table 7: `exhibition_artifacts` (Many-to-Many M:N Association)
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `exhibition_id` | INTEGER | NOT NULL, FOREIGN KEY -> `exhibitions(id)` ON DELETE CASCADE | Target exhibition |
-| `artifact_id` | INTEGER | NOT NULL, FOREIGN KEY -> `artifacts(id)` ON DELETE CASCADE | Associated artifact |
+| `exhibition_id` | INT | NOT NULL, REFERENCES `exhibitions(id)` ON DELETE CASCADE | Target exhibition |
+| `artifact_id` | INT | NOT NULL, REFERENCES `artifacts(id)` ON DELETE CASCADE | Associated artifact |
 | **Primary Key** | Composite | `PRIMARY KEY (exhibition_id, artifact_id)` | Unique exhibition-to-artifact mapping |
 
 ### Table 8: `deleted_artifacts_log` (Audit Trail)
 | Column | Type | Constraints | Description |
 |---|---|---|---|
-| `id` | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique audit log ID |
-| `artifact_id` | INTEGER | NOT NULL | ID of deleted artifact |
+| `id` | INT | GENERATED ALWAYS AS IDENTITY PRIMARY KEY | Unique audit log ID |
+| `artifact_id` | INT | NOT NULL | ID of deleted artifact |
 | `name` | TEXT | NOT NULL | Title of deleted artifact |
-| `deleted_at` | TEXT | DEFAULT `(datetime('now'))` | Deletion timestamp |
+| `deleted_at` | TIMESTAMP | DEFAULT `CURRENT_TIMESTAMP` | Deletion timestamp |
 
 ### View: `artifact_details`
-Denormalized SQL View joining `artifacts`, `civilizations`, and `categories` to provide pre-joined metadata (`civilization`, `region`, `civ_period`, `category`) without redundant join syntax in queries.
+Denormalized SQL View (`CREATE OR REPLACE VIEW artifact_details`) joining `artifacts`, `civilizations`, and `categories` to provide pre-joined metadata (`civilization`, `region`, `civ_period`, `category`) without redundant join syntax in queries.
 
-### Trigger: `trg_artifact_deleted`
-`AFTER DELETE` trigger on table `artifacts`. Automatically logs the deleted artifact's ID, title, and timestamp into `deleted_artifacts_log`.
+### Trigger Function & Trigger: `trg_artifact_deleted`
+PL/pgSQL trigger function `log_deleted_artifact()` returning `TRIGGER`. Fired by `CREATE TRIGGER trg_artifact_deleted AFTER DELETE ON artifacts FOR EACH ROW EXECUTE FUNCTION log_deleted_artifact()`. Automatically logs the deleted artifact's ID, title, and timestamp into `deleted_artifacts_log`.
+
+### Security: Row Level Security (RLS)
+Every table has Row Level Security enabled (`ALTER TABLE <table> ENABLE ROW LEVEL SECURITY`). This prevents public exposure of data via Supabase's auto-generated PostgREST APIs, while allowing our Flask application to read and write freely by connecting with the administrative `postgres` role.
 
 ### Indexes:
 - `idx_artifacts_name`: Index on `artifacts(name)` for optimized search operations.
@@ -264,7 +274,7 @@ The database schema is rigorously structured according to relational normalizati
 
 ---
 
-## 6. Installation & Execution Guide (Windows)
+## 6. Installation & Execution Guide (Windows / Linux / macOS)
 
 ### Step 1: Open Terminal in Project Directory
 Navigate to the repository folder:
@@ -272,42 +282,69 @@ Navigate to the repository folder:
 cd museum-artifact
 ```
 
-### Step 2: Create and Activate Virtual Environment
+### Step 2: Supabase Project Setup & Connection String
+1. Sign in to [Supabase](https://supabase.com/) and create a new project (e.g., `museum-artifact`).
+2. Note your database password chosen during project creation.
+3. In your Supabase Project Dashboard, navigate to:
+   **Project Settings** (gear icon) > **Database** > **Connection string**.
+4. Select the **URI** tab (or **Connection pooler** / **Session** mode on port `5432` or `6543`).
+5. Copy the connection URI:
+   ```text
+   postgresql://postgres.[PROJECT-REF]:[YOUR-PASSWORD]@aws-0-[REGION].pooler.supabase.com:6543/postgres
+   ```
+   > **Note**: Ensure `sslmode=require` is enabled and any special characters in `[YOUR-PASSWORD]` are URL-encoded (e.g., `@` as `%40`).
+
+### Step 3: Configure Environment Variables (.env)
+Create your local `.env` file from the provided `.env.example`:
+```powershell
+Copy-Item .env.example .env
+```
+Open `.env` and fill in your connection string and security key:
+```env
+DATABASE_URL=postgresql://postgres.yourprojectref:yourpassword@aws-0-region.pooler.supabase.com:6543/postgres?sslmode=require
+SECRET_KEY=your-custom-production-secret-key
+FLASK_DEBUG=0
+```
+> **Security Reminder**: The `.env` file contains sensitive credentials and is strictly excluded via `.gitignore`. Never commit `.env` to GitHub.
+
+### Step 4: Create and Activate Virtual Environment
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-> **Note on PowerShell Execution Policy**: If PowerShell blocks script execution with a permission error, either bypass it for the current terminal session:
+> **Note on PowerShell Execution Policy**: If PowerShell restricts script activation, run:
 > ```powershell
 > Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 > .\.venv\Scripts\Activate.ps1
 > ```
-> Or invoke Python directly without activation:
-> ```powershell
-> .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-> .\.venv\Scripts\python.exe database.py
-> .\.venv\Scripts\python.exe app.py
-> ```
 
-### Step 3: Install Required Dependencies
+### Step 5: Install Required Dependencies
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-### Step 4: Initialize the Database
+### Step 6: Initialize Database & Seed Data
+Run the database initialization script:
 ```powershell
 python database.py
 ```
-This automatically builds all four tables and idempotently inserts the 5 civilizations, 6 categories, and 12 sample artifacts without duplicate conflicts.
+This connects to Supabase, creates all 8 tables with `GENERATED ALWAYS AS IDENTITY` primary keys, the `artifact_details` view, the `log_deleted_artifact()` trigger function and trigger, enables Row Level Security (RLS) on all tables, and idempotently seeds civilizations, categories, artifacts, curators, exhibitions, and junction links using `ON CONFLICT DO NOTHING`.
 
-### Step 5: Start the Flask Application
+### Step 7: Run Automated Tests
+Execute the comprehensive test suite:
+```powershell
+python -m unittest test_app.py
+```
+> **Test Isolation**: The test suite dynamically generates an isolated temporary schema (e.g., `test_museum_<uuid>`), sets the PostgreSQL `search_path`, validates all 16 test cases without touching production data, and cleans up with `DROP SCHEMA CASCADE` upon completion.
+
+### Step 8: Start the Flask Application
 ```powershell
 python app.py
 ```
 
-### Step 6: Access the Application
-Open any web browser and visit:
+### Step 9: Access the Application
+Open your web browser and navigate to:
 👉 **[http://127.0.0.1:5000](http://127.0.0.1:5000)**
 
 ---

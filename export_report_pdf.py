@@ -14,49 +14,51 @@ def generate_pdf(output_pdf="REPORT.pdf"):
 
         ax.text(0.5, 0.94, "MUSEUM ARTIFACT EXPLORER — FINAL REPORT",
                 ha="center", fontsize=15, fontweight="bold", color="#2C241E")
-        ax.text(0.5, 0.91, "Flask + SQLite Relational DBMS Hardening & Feature Expansion",
+        ax.text(0.5, 0.91, "Flask + PostgreSQL on Supabase (psycopg2) Cloud DBMS Hardening",
                 ha="center", fontsize=10, color="#796B5F")
         ax.plot([0.08, 0.92], [0.89, 0.89], color="#A45A2A", lw=1.5)
 
         p1_text = """
 1. EXECUTIVE SUMMARY
-The Museum Artifact Explorer was enhanced into a robust relational DBMS platform.
-Technical debt and unneeded files were removed, database schema integrity was enforced
-using CHECK, NOT NULL, and UNIQUE constraints, and M:N associations (curators,
-exhibitions, exhibition_artifacts), an AFTER DELETE audit trigger, multi-column indexes,
-and a denormalized SQL view (artifact_details) were added. The automated test suite was
-expanded to 16 unit tests, all passing cleanly.
+The Museum Artifact Explorer was fully migrated from local SQLite to cloud-hosted
+PostgreSQL on Supabase using plain SQL via psycopg2-binary. Database integrity is
+enforced with GENERATED ALWAYS AS IDENTITY, TIMESTAMP/DATE data types, CHECK, NOT NULL,
+and UNIQUE constraints, Many-to-Many associations (curators, exhibitions,
+exhibition_artifacts), a PL/pgSQL AFTER DELETE audit trigger, multi-column indexes,
+and a denormalized SQL view (artifact_details). Row Level Security (RLS) is enabled
+across all tables to protect against unauthorized Supabase PostgREST exposure.
+The test suite runs with complete schema-level isolation.
 
 2. DELIVERABLES MATRIX
-• Phase 1 (Cleanup):
-  - Added museum.db to .gitignore; removed from git cache.
-  - Deleted package-lock.json, templates/details.html, static/style.css.
-  - Cleaned README personal Windows paths and removed 'Antigravity IDE'.
+• Phase 1 (Database Connection & Wrapper):
+  - database.py connects via DATABASE_URL using python-dotenv (sslmode=require).
+  - Built DatabaseWrapper and CursorWrapper with psycopg2.extras.DictCursor.
+  - Transparently translates '?' parameter placeholders to '%s'.
+  - Dict rows support both row['col'] and row[0] indexing; keep commit/rollback/close.
 
-• Phase 2 (Fixes):
-  - Sanitized 'next' parameter in toggle_favorite against open redirects.
-  - Made FLASK_DEBUG configurable from environment (default off); added SECRET_KEY warning.
-  - Removed legacy destructive DROP TABLE migration logic in database.py.
-  - Added NOT NULL on FKs, CHECK(discovery_year <= 2026), CHECK(length(trim(name)) > 0),
-    UNIQUE(name, civilization_id); handled duplicate IntegrityError in add/edit routes.
-  - Assigned distinct Unsplash URLs for Roman Denarius and Chola Gold Coin.
+• Phase 2 (PostgreSQL Schema Conversion):
+  - Replaced AUTOINCREMENT with INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY.
+  - Set created_at to TIMESTAMP DEFAULT CURRENT_TIMESTAMP; exhibition dates to DATE.
+  - Created PL/pgSQL function log_deleted_artifact() and trg_artifact_deleted trigger.
+  - Replaced SQLite seed logic with INSERT ... ON CONFLICT DO NOTHING.
+  - Eliminated executescript and PRAGMA statements; schema creation is idempotent.
 
-• Phase 3 (DBMS Add-ons):
-  - Created curators, exhibitions, and exhibition_artifacts (M:N junction).
-  - Created indexes: idx_artifacts_name, idx_artifacts_civ_cat.
-  - Created SQL View artifact_details and integrated into app.py's _artifact_query.
-  - Created deleted_artifacts_log table and trg_artifact_deleted AFTER DELETE trigger.
-  - Built minimal UI with /exhibitions list and /exhibitions/<id> detail pages with nav link.
+• Phase 3 (Security & Row Level Security):
+  - ALTER TABLE ... ENABLE ROW LEVEL SECURITY on all 8 tables.
+  - Prevents public exposure through Supabase's auto-generated PostgREST APIs.
+  - App connects as administrative 'postgres' role, which naturally bypasses RLS.
 
-• Phase 4 (Docs & Diagram):
-  - Created queries.sql with 14+ documented DBMS queries (verified on seeded DB).
-  - Updated README with schema, Mermaid ER diagram, and 1NF/2NF/3NF normalization.
-  - Generated high-resolution docs/er_diagram.png matching the final schema.
+• Phase 4 (Application & Query Hardening):
+  - app.py uses ILIKE for case-insensitive search.
+  - Catches psycopg2 UniqueViolation and CheckViolation; executes db.rollback().
+  - Converted queries.sql to PostgreSQL: STRING_AGG(DISTINCT a.material, ', ').
 
-• Phase 5 (Automated Tests):
-  - Added 8 new unit tests in test_app.py (16 tests total). All 16 tests pass in 0.6s.
+• Phase 5 (Testing & Documentation):
+  - test_app.py uses isolated temporary test schemas (CREATE SCHEMA, search_path).
+  - Created .env.example with placeholders; updated requirements.txt and README.md.
+  - Recompiled high-resolution REPORT.pdf document.
 """
-        ax.text(0.08, 0.86, p1_text.strip(), ha="left", va="top", fontsize=8.2,
+        ax.text(0.08, 0.86, p1_text.strip(), ha="left", va="top", fontsize=8.0,
                 family="monospace", color="#2C241E")
         pdf.savefig(fig)
         plt.close()
@@ -66,49 +68,51 @@ expanded to 16 unit tests, all passing cleanly.
         ax2.axis("off")
         fig2.patch.set_facecolor("#FAF8F5")
 
-        ax2.text(0.5, 0.94, "DATABASE SCHEMA, TEST RESULTS & SECURITY",
+        ax2.text(0.5, 0.94, "POSTGRESQL SCHEMA, TEST ARCHITECTURE & SECURITY",
                 ha="center", fontsize=15, fontweight="bold", color="#2C241E")
         ax2.plot([0.08, 0.92], [0.91, 0.91], color="#A45A2A", lw=1.5)
 
         p2_text = """
 3. FINAL RELATIONAL SCHEMA OVERVIEW
-• civilizations (id PK, name NOT NULL UNIQUE, region, period, description)
-• categories (id PK, name NOT NULL UNIQUE, description)
-• artifacts (id PK, name NOT NULL, description NOT NULL, period, discovery_location,
-  discovery_year, material, image_url, civilization_id FK NOT NULL, category_id FK NOT NULL,
-  created_at, CHECK(discovery_year <= 2026), CHECK(length(trim(name)) > 0),
-  UNIQUE(name, civilization_id))
-• favorites (id PK, artifact_id FK NOT NULL UNIQUE ON DELETE CASCADE, created_at)
-• curators (id PK, name NOT NULL, email NOT NULL UNIQUE, specialization)
-• exhibitions (id PK, title NOT NULL UNIQUE, start_date NOT NULL, end_date NOT NULL,
-  curator_id FK ON DELETE SET NULL, CHECK(end_date >= start_date))
-• exhibition_artifacts (exhibition_id FK, artifact_id FK, PRIMARY KEY (exhibition_id, artifact_id),
-  both ON DELETE CASCADE)
-• deleted_artifacts_log (id PK, artifact_id NOT NULL, name NOT NULL, deleted_at)
-• View: artifact_details (artifacts JOIN civilizations JOIN categories)
-• Trigger: trg_artifact_deleted (AFTER DELETE ON artifacts INSERT INTO deleted_artifacts_log)
-• Indexes: idx_artifacts_name ON artifacts(name), idx_artifacts_civ_cat ON (civilization_id, category_id)
+• civilizations (id INT IDENTITY PK, name TEXT UNIQUE, region, period, description)
+• categories (id INT IDENTITY PK, name TEXT UNIQUE, description)
+• artifacts (id INT IDENTITY PK, name NOT NULL, description NOT NULL, period,
+  discovery_location, discovery_year INT, material, image_url, civilization_id INT FK,
+  category_id INT FK, created_at TIMESTAMP, CHECK(discovery_year <= 2026),
+  CHECK(length(trim(name)) > 0), UNIQUE(name, civilization_id))
+• favorites (id INT IDENTITY PK, artifact_id INT FK UNIQUE ON DELETE CASCADE, created_at)
+• curators (id INT IDENTITY PK, name NOT NULL, email NOT NULL UNIQUE, specialization)
+• exhibitions (id INT IDENTITY PK, title NOT NULL UNIQUE, start_date DATE, end_date DATE,
+  curator_id INT FK ON DELETE SET NULL, CHECK(end_date >= start_date))
+• exhibition_artifacts (exhibition_id INT FK, artifact_id INT FK, PRIMARY KEY, CASCADE)
+• deleted_artifacts_log (id INT IDENTITY PK, artifact_id INT NOT NULL, name, deleted_at)
+• View: artifact_details (CREATE OR REPLACE VIEW joining artifacts, civs, categories)
+• Trigger: trg_artifact_deleted (PL/pgSQL AFTER DELETE trigger inserting to audit log)
+• RLS: ALTER TABLE <table> ENABLE ROW LEVEL SECURITY on all 8 tables
 
-4. UNITTEST EXECUTION SUMMARY
-Ran 16 tests in 0.619s — Status: OK (All passed)
-Tests covered: schema tables, idempotency, homepage, catalog search/filter, detail/404,
-CRUD lifecycle, favorites cascade, civs/cats views, empty name validation, missing civ validation,
-duplicate name rejection, open redirect sanitization, CHECK constraints, trigger logging,
-exhibition routes HTTP 200, and M:N junction cascade.
+4. TEST ARCHITECTURE & ISOLATION
+• Dynamic Test Schema: setUpClass creates a dedicated temporary schema (test_museum_<uuid>).
+• Search Path Switching: Dynamically executes SET search_path TO "<test_schema>", public.
+• Zero Real Data Touch: Tests run exclusively within the temporary test schema.
+• Automated Teardown: tearDownClass executes DROP SCHEMA IF EXISTS ... CASCADE.
+• 16 Unit Tests: Covers schema tables, idempotency, catalog, ILIKE search, detail/404,
+  CRUD, favorites cascade, views, constraints, PL/pgSQL trigger, and M:N cascades.
 
 5. SECURITY ENHANCEMENTS
+• Supabase Row Level Security (RLS) blocks unauthorized PostgREST API exposure.
+• SSL encrypted wire protocol (sslmode=require) for all PostgreSQL connections.
+• Database constraint violations trigger clean transaction rollback (db.rollback()).
 • Open-redirect vulnerability eliminated via strict validation on 'next' URL parameter.
-• FLASK_DEBUG parsed safely from environment variables, defaulting to disabled in production.
-• SECRET_KEY loaded from environment with clear console warnings when dev fallback is used.
-• Full parameterized queries across all database access functions to prevent SQL injection.
+• FLASK_DEBUG parsed safely from environment variables; SECRET_KEY warning fallback.
 
 6. HOW TO RUN THE APPLICATION
-1. python -m pip install -r requirements.txt
-2. python database.py
-3. python -m unittest test_app
-4. python app.py  (visit http://127.0.0.1:5000)
+1. Copy-Item .env.example .env (set DATABASE_URL to your Supabase PostgreSQL URI)
+2. python -m pip install -r requirements.txt
+3. python database.py (creates tables, view, trigger, RLS, and seeds data)
+4. python -m unittest test_app.py (runs 16 isolated unit tests)
+5. python app.py (starts Flask server at http://127.0.0.1:5000)
 """
-        ax2.text(0.08, 0.88, p2_text.strip(), ha="left", va="top", fontsize=8.2,
+        ax2.text(0.08, 0.88, p2_text.strip(), ha="left", va="top", fontsize=8.0,
                  family="monospace", color="#2C241E")
         pdf.savefig(fig2)
         plt.close()

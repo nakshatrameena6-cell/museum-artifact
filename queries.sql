@@ -70,7 +70,7 @@ SELECT
 FROM curators c
 JOIN exhibitions e ON e.curator_id = c.id
 JOIN exhibition_artifacts ea ON ea.exhibition_id = e.id
-GROUP BY c.id, e.id
+GROUP BY c.id, c.name, c.email, e.id, e.title
 HAVING COUNT(ea.artifact_id) > 2
 ORDER BY total_artifacts DESC;
 
@@ -86,14 +86,14 @@ FROM artifacts
 WHERE discovery_year IS NOT NULL;
 
 -- ----------------------------------------------------------------------------
--- 7. Aggregation by Group: Discovery statistics per civilization
+-- 7. Aggregation by Group: Discovery statistics per civilization (PostgreSQL STRING_AGG)
 -- ----------------------------------------------------------------------------
 SELECT 
     c.name AS civilization,
     COUNT(a.id) AS artifact_count,
     MIN(a.discovery_year) AS first_excavated_year,
     MAX(a.discovery_year) AS last_excavated_year,
-    GROUP_CONCAT(DISTINCT a.material) AS materials_used
+    STRING_AGG(DISTINCT a.material, ', ') AS materials_used
 FROM civilizations c
 JOIN artifacts a ON a.civilization_id = c.id
 GROUP BY c.id, c.name
@@ -209,8 +209,8 @@ INSERT INTO artifacts (
     2024,
     'Bronze & Clay',
     'https://example.com/test.jpg',
-    1,
-    1
+    (SELECT id FROM civilizations LIMIT 1),
+    (SELECT id FROM categories LIMIT 1)
 );
 
 -- Step B: Delete the temporary artifact (this automatically fires trg_artifact_deleted)
