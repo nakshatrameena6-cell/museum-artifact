@@ -7,7 +7,8 @@ Routes: home, artifacts, artifact detail, add, edit, delete, favorites,
 
 import os
 import random
-import sqlite3
+import psycopg2
+from psycopg2.errors import UniqueViolation, CheckViolation
 from flask import (Flask, render_template, request, redirect,
                    url_for, flash, abort, jsonify)
 from database import get_db, initialize_database
@@ -92,10 +93,10 @@ def artifacts():
 
         if search:
             conditions.append(
-                "(a.name LIKE ? OR a.description LIKE ? "
-                "OR a.material LIKE ? OR a.period LIKE ? "
-                "OR a.discovery_location LIKE ? "
-                "OR c.name LIKE ? OR cat.name LIKE ?)"
+                "(a.name ILIKE ? OR a.description ILIKE ? "
+                "OR a.material ILIKE ? OR a.period ILIKE ? "
+                "OR a.discovery_location ILIKE ? "
+                "OR c.name ILIKE ? OR cat.name ILIKE ?)"
             )
             term = f"%{search}%"
             params.extend([term] * 7)
@@ -200,15 +201,15 @@ def add_artifact():
                     db.commit()
                     flash(f'"{name}" has been added to the collection!', "success")
                     return redirect(url_for("artifacts"))
-                except sqlite3.IntegrityError as e:
+                except UniqueViolation:
                     db.rollback()
-                    err_msg = str(e).lower()
-                    if "unique" in err_msg:
-                        flash(f'An artifact named "{name}" already exists for this civilization.', "error")
-                    elif "check" in err_msg:
-                        flash("Validation failed: Artifact name cannot be blank and discovery year must be \u2264 2026.", "error")
-                    else:
-                        flash(f"Database constraint error: {e}", "error")
+                    flash(f'An artifact named "{name}" already exists for this civilization.', "error")
+                except CheckViolation:
+                    db.rollback()
+                    flash("Validation failed: Artifact name cannot be blank and discovery year must be \u2264 2026.", "error")
+                except psycopg2.IntegrityError as e:
+                    db.rollback()
+                    flash(f"Database constraint error: {e}", "error")
 
         return render_template("add_artifact.html",
                                civilizations=civilizations,
@@ -270,15 +271,15 @@ def edit_artifact(artifact_id):
                     db.commit()
                     flash(f'"{name}" has been updated successfully!', "success")
                     return redirect(url_for("artifact_detail", artifact_id=artifact_id))
-                except sqlite3.IntegrityError as e:
+                except UniqueViolation:
                     db.rollback()
-                    err_msg = str(e).lower()
-                    if "unique" in err_msg:
-                        flash(f'An artifact named "{name}" already exists for this civilization.', "error")
-                    elif "check" in err_msg:
-                        flash("Validation failed: Artifact name cannot be blank and discovery year must be \u2264 2026.", "error")
-                    else:
-                        flash(f"Database constraint error: {e}", "error")
+                    flash(f'An artifact named "{name}" already exists for this civilization.', "error")
+                except CheckViolation:
+                    db.rollback()
+                    flash("Validation failed: Artifact name cannot be blank and discovery year must be \u2264 2026.", "error")
+                except psycopg2.IntegrityError as e:
+                    db.rollback()
+                    flash(f"Database constraint error: {e}", "error")
 
         return render_template("edit_artifact.html",
                                artifact=artifact,

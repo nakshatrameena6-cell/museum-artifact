@@ -1,55 +1,71 @@
 """
 test_app.py — Comprehensive Test Suite for Museum Artifact Explorer
-Runs automated tests using Flask test client with an isolated temporary SQLite database.
+Runs automated tests using Flask test client with an isolated temporary PostgreSQL schema on Supabase.
 """
 
-import unittest
-import tempfile
 import os
-import sqlite3
+import unittest
+import uuid
+import psycopg2
+from psycopg2.errors import UniqueViolation, CheckViolation
+from dotenv import load_dotenv
+
 import app
 import database
 
+load_dotenv()
+
 
 class MuseumArtifactExplorerTestCase(unittest.TestCase):
-    def setUp(self):
-        # Create a temporary file for the isolated test database
-        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
-        os.close(self.db_fd)
+    @classmethod
+    def setUpClass(cls):
+        # Create an isolated temporary schema for the test suite
+        cls.test_schema = f"test_museum_{uuid.uuid4().hex[:12]}"
+        cls.raw_conn = psycopg2.connect(os.environ["DATABASE_URL"], sslmode="require")
+        with cls.raw_conn.cursor() as cur:
+            cur.execute(f'CREATE SCHEMA "{cls.test_schema}"')
+        cls.raw_conn.commit()
 
-        # Patch DATABASE path in both database and app modules
-        self.orig_db = database.DATABASE
-        database.DATABASE = self.db_path
-        app.DATABASE = self.db_path
+        # Patch active search path schema in database module
+        cls.orig_schema = database.SCHEMA
+        database.SCHEMA = cls.test_schema
 
         # Configure app for testing
         app.app.config["TESTING"] = True
         app.app.config["WTF_CSRF_ENABLED"] = False
+
+        # Initialize schema, trigger, and seed data in the isolated test schema
+        database.initialize_database(cls.test_schema)
+
+    @classmethod
+    def tearDownClass(cls):
+        # Restore original schema setting and drop temporary test schema
+        database.SCHEMA = cls.orig_schema
+        try:
+            with cls.raw_conn.cursor() as cur:
+                cur.execute(f'DROP SCHEMA IF EXISTS "{cls.test_schema}" CASCADE')
+            cls.raw_conn.commit()
+            cls.raw_conn.close()
+        except Exception:
+            pass
+
+    def setUp(self):
         self.client = app.app.test_client()
 
-        # Initialize test database
-        database.initialize_database()
-
-    def tearDown(self):
-        # Restore original DB path and delete temp file
-        database.DATABASE = self.orig_db
-        app.DATABASE = self.orig_db
-        if os.path.exists(self.db_path):
-            try:
-                os.remove(self.db_path)
-            except OSError:
-                pass
-
     def test_01_schema_and_tables(self):
-        """Verify that all 4 required tables exist."""
+        """Verify that all required tables exist in test schema."""
         conn = database.get_db()
         tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = ?",
+            (self.test_schema,)
         ).fetchall()
-        table_names = {row["name"] for row in tables}
+        table_names = {row["table_name"] for row in tables}
         conn.close()
 
-        required = {"civilizations", "categories", "artifacts", "favorites"}
+        required = {
+            "civilizations", "categories", "artifacts", "favorites",
+            "curators", "exhibitions", "exhibition_artifacts", "deleted_artifacts_log"
+        }
         self.assertTrue(required.issubset(table_names), f"Missing tables: {required - table_names}")
 
     def test_02_sample_data_and_idempotence(self):
@@ -65,7 +81,7 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
         self.assertGreaterEqual(art_count, 12, "Expected at least 12 artifacts")
 
         # Run initialize again to test idempotency
-        database.initialize_database()
+        database.initialize_database(self.test_schema)
 
         conn = database.get_db()
         civ_count2 = conn.execute("SELECT COUNT(*) FROM civilizations").fetchone()[0]
@@ -93,8 +109,8 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
         html = res.data.decode("utf-8")
         self.assertIn("Mohenjo-daro Dancing Girl", html)
 
-        # 2. Search query
-        res_search = self.client.get("/artifacts?search=Denarius")
+        # 2. Search query (using ILIKE)
+        res_search = self.client.get("/artifacts?search=denarius")
         self.assertEqual(res_search.status_code, 200)
         search_html = res_search.data.decode("utf-8")
         self.assertIn("Roman Silver Denarius", search_html)
@@ -192,8 +208,16 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
     def test_07_favorites_and_cascade_delete(self):
         """Test adding/removing favorites, unique constraint, and cascade deletion."""
         conn = database.get_db()
-        art = conn.execute("SELECT id FROM artifacts LIMIT 1").fetchone()
-        art_id = art["id"]
+        civ_id = conn.execute("SELECT id FROM civilizations LIMIT 1").fetchone()[0]
+        cat_id = conn.execute("SELECT id FROM categories LIMIT 1").fetchone()[0]
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO artifacts (name, description, civilization_id, category_id)
+               VALUES ('Fav Test Artifact', 'Desc', ?, ?)""",
+            (civ_id, cat_id)
+        )
+        art_id = cur.lastrowid
+        conn.commit()
         conn.close()
 
         # 1. Add to favorites
@@ -331,7 +355,7 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
         cat_id = conn.execute("SELECT id FROM categories LIMIT 1").fetchone()[0]
 
         # 1. Year > 2026 must violate CHECK constraint
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises((CheckViolation, psycopg2.IntegrityError)):
             conn.execute(
                 """INSERT INTO artifacts (name, description, discovery_year, civilization_id, category_id)
                    VALUES ('Futuristic Relic', 'From the future', 2099, ?, ?)""",
@@ -339,7 +363,7 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
             )
 
         # 2. Blank whitespace-only name must violate CHECK constraint
-        with self.assertRaises(sqlite3.IntegrityError):
+        with self.assertRaises((CheckViolation, psycopg2.IntegrityError)):
             conn.execute(
                 """INSERT INTO artifacts (name, description, discovery_year, civilization_id, category_id)
                    VALUES ('   ', 'Empty name relic', 2020, ?, ?)""",
@@ -470,4 +494,3 @@ class MuseumArtifactExplorerTestCase(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

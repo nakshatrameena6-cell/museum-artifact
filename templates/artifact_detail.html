@@ -85,7 +85,7 @@
                 {% if artifact.created_at %}
                 <div class="meta-row">
                     <span class="label">Added to Database</span>
-                    <span class="value">{{ artifact.created_at[:10] }}</span>
+                    <span class="value">{{ (artifact.created_at|string)[:10] }}</span>
                 </div>
                 {% endif %}
             </div>

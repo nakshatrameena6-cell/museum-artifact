@@ -1,104 +1,200 @@
 """
 database.py — Museum Artifact Explorer
-Handles database initialization, schema creation, and sample data seeding.
+Handles PostgreSQL database connection, schema initialization, and sample data seeding on Supabase.
 """
 
-import sqlite3
 import os
-from datetime import datetime
+import re
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
 
-DATABASE = os.path.join(os.path.dirname(__file__), "museum.db")
+load_dotenv()
 
-
-def get_db():
-    """Return a database connection with row factory and FK enforcement."""
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+# Configurable search path schema, primarily used for test suite isolation
+SCHEMA = None
 
 
-def initialize_database():
-    """Create all tables and seed sample data if the DB is empty."""
-    conn = get_db()
+class CursorWrapper:
+    """Wrapper around psycopg2.extras.DictCursor supporting row['col'], row[0], and lastrowid."""
+    def __init__(self, cur):
+        self._cur = cur
+        self.lastrowid = None
+
+    def execute(self, sql, params=None):
+        pg_sql = sql.replace("?", "%s")
+        trimmed = pg_sql.strip()
+
+        # Intercept INSERT statements (except junction tables) to retrieve lastrowid if needed
+        is_insert = re.match(r'^\s*INSERT\s+INTO\s+(?!exhibition_artifacts\b)(\w+)', trimmed, re.IGNORECASE)
+        has_returning = re.search(r'\bRETURNING\b', trimmed, re.IGNORECASE)
+        if is_insert and not has_returning:
+            pg_sql_returning = trimmed.rstrip(";") + " RETURNING id"
+            try:
+                if params is not None:
+                    self._cur.execute(pg_sql_returning, tuple(params))
+                else:
+                    self._cur.execute(pg_sql_returning)
+                res = self._cur.fetchone()
+                self.lastrowid = res[0] if res else None
+                return self
+            except Exception:
+                # If table doesn't have an id or fails, fall back to executing standard query
+                pass
+
+        if params is not None:
+            self._cur.execute(pg_sql, tuple(params))
+        else:
+            self._cur.execute(pg_sql)
+        return self
+
+    def fetchone(self):
+        return self._cur.fetchone()
+
+    def fetchall(self):
+        return self._cur.fetchall()
+
+    def fetchmany(self, size=None):
+        return self._cur.fetchmany(size)
+
+    def close(self):
+        return self._cur.close()
+
+    @property
+    def rowcount(self):
+        return self._cur.rowcount
+
+    def __iter__(self):
+        return iter(self._cur)
+
+
+class DatabaseWrapper:
+    """Connection wrapper with execute(sql, params), commit, rollback, and close."""
+    def __init__(self, conn, schema=None):
+        self._conn = conn
+        self.schema = schema
+
+    def execute(self, sql, params=None):
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        wrapper = CursorWrapper(cur)
+        wrapper.execute(sql, params)
+        return wrapper
+
+    def cursor(self):
+        cur = self._conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        return CursorWrapper(cur)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
+
+    def close(self):
+        self._conn.close()
+
+    @property
+    def raw_connection(self):
+        return self._conn
+
+
+def get_db(schema=None):
+    """Return a wrapped PostgreSQL database connection using DATABASE_URL (sslmode=require)."""
+    load_dotenv()
+    db_url = os.environ.get("DATABASE_URL")
+    if not db_url:
+        raise ValueError("DATABASE_URL environment variable is not set.")
+    conn = psycopg2.connect(db_url, sslmode="require")
+    active_schema = schema or SCHEMA
+    if active_schema:
+        with conn.cursor() as cur:
+            cur.execute(f'SET search_path TO "{active_schema}", public')
+    return DatabaseWrapper(conn, active_schema)
+
+
+def initialize_database(schema=None):
+    """Create all tables, view, trigger, indexes and seed sample data idempotently."""
+    conn = get_db(schema)
     try:
-        conn.executescript("""
+        ddl_statements = [
+            """
             CREATE TABLE IF NOT EXISTS civilizations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 region TEXT,
                 period TEXT,
                 description TEXT
-            );
-
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS categories (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL UNIQUE,
                 description TEXT
-            );
-
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS artifacts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL,
                 description TEXT NOT NULL,
                 period TEXT,
                 discovery_location TEXT,
-                discovery_year INTEGER,
+                discovery_year INT,
                 material TEXT,
                 image_url TEXT,
-                civilization_id INTEGER NOT NULL,
-                category_id INTEGER NOT NULL,
-                created_at TEXT DEFAULT (datetime('now')),
-                FOREIGN KEY (civilization_id) REFERENCES civilizations(id),
-                FOREIGN KEY (category_id) REFERENCES categories(id),
-                CHECK (discovery_year IS NULL OR discovery_year <= 2026),
-                CHECK (length(trim(name)) > 0),
-                UNIQUE (name, civilization_id)
-            );
-
+                civilization_id INT NOT NULL REFERENCES civilizations(id),
+                category_id INT NOT NULL REFERENCES categories(id),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT check_discovery_year CHECK (discovery_year IS NULL OR discovery_year <= 2026),
+                CONSTRAINT check_artifact_name CHECK (length(trim(name)) > 0),
+                CONSTRAINT uq_artifact_civ UNIQUE (name, civilization_id)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS favorites (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                artifact_id INTEGER NOT NULL UNIQUE,
-                created_at TEXT DEFAULT (datetime('now')),
-                FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-            );
-
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                artifact_id INT NOT NULL UNIQUE REFERENCES artifacts(id) ON DELETE CASCADE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS curators (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 name TEXT NOT NULL,
                 email TEXT NOT NULL UNIQUE,
                 specialization TEXT
-            );
-
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS exhibitions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                 title TEXT NOT NULL UNIQUE,
-                start_date TEXT NOT NULL,
-                end_date TEXT NOT NULL,
-                curator_id INTEGER,
-                FOREIGN KEY (curator_id) REFERENCES curators(id) ON DELETE SET NULL,
-                CHECK (end_date >= start_date)
-            );
-
+                start_date DATE NOT NULL,
+                end_date DATE NOT NULL,
+                curator_id INT REFERENCES curators(id) ON DELETE SET NULL,
+                CONSTRAINT check_exhibition_dates CHECK (end_date >= start_date)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS exhibition_artifacts (
-                exhibition_id INTEGER NOT NULL,
-                artifact_id INTEGER NOT NULL,
-                PRIMARY KEY (exhibition_id, artifact_id),
-                FOREIGN KEY (exhibition_id) REFERENCES exhibitions(id) ON DELETE CASCADE,
-                FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
-            );
-
+                exhibition_id INT NOT NULL REFERENCES exhibitions(id) ON DELETE CASCADE,
+                artifact_id INT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+                PRIMARY KEY (exhibition_id, artifact_id)
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS deleted_artifacts_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                artifact_id INTEGER NOT NULL,
+                id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                artifact_id INT NOT NULL,
                 name TEXT NOT NULL,
-                deleted_at TEXT DEFAULT (datetime('now'))
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_artifacts_name ON artifacts (name);
-            CREATE INDEX IF NOT EXISTS idx_artifacts_civ_cat ON artifacts (civilization_id, category_id);
-
-            CREATE VIEW IF NOT EXISTS artifact_details AS
+                deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_name ON artifacts (name)",
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_civ_cat ON artifacts (civilization_id, category_id)",
+            """
+            CREATE OR REPLACE VIEW artifact_details AS
             SELECT
                 a.id,
                 a.name,
@@ -117,16 +213,37 @@ def initialize_database():
                 cat.name AS category
             FROM artifacts a
             JOIN civilizations c ON a.civilization_id = c.id
-            JOIN categories cat ON a.category_id = cat.id;
-
-            CREATE TRIGGER IF NOT EXISTS trg_artifact_deleted
-            AFTER DELETE ON artifacts
-            FOR EACH ROW
+            JOIN categories cat ON a.category_id = cat.id
+            """,
+            """
+            CREATE OR REPLACE FUNCTION log_deleted_artifact()
+            RETURNS TRIGGER AS $$
             BEGIN
                 INSERT INTO deleted_artifacts_log (artifact_id, name, deleted_at)
-                VALUES (OLD.id, OLD.name, datetime('now'));
+                VALUES (OLD.id, OLD.name, CURRENT_TIMESTAMP);
+                RETURN OLD;
             END;
-        """)
+            $$ LANGUAGE plpgsql
+            """,
+            "DROP TRIGGER IF EXISTS trg_artifact_deleted ON artifacts",
+            """
+            CREATE TRIGGER trg_artifact_deleted
+            AFTER DELETE ON artifacts
+            FOR EACH ROW
+            EXECUTE FUNCTION log_deleted_artifact()
+            """,
+            "ALTER TABLE civilizations ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE categories ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE artifacts ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE favorites ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE curators ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE exhibitions ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE exhibition_artifacts ENABLE ROW LEVEL SECURITY",
+            "ALTER TABLE deleted_artifacts_log ENABLE ROW LEVEL SECURITY",
+        ]
+
+        for stmt in ddl_statements:
+            conn.execute(stmt)
         conn.commit()
 
         # ── Seed civilizations ──────────────────────────────────────────────
@@ -144,7 +261,7 @@ def initialize_database():
         ]
         for civ in civs:
             conn.execute(
-                "INSERT OR IGNORE INTO civilizations (name, region, period, description) VALUES (?, ?, ?, ?)",
+                "INSERT INTO civilizations (name, region, period, description) VALUES (?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
                 civ
             )
 
@@ -159,18 +276,19 @@ def initialize_database():
         ]
         for cat in cats:
             conn.execute(
-                "INSERT OR IGNORE INTO categories (name, description) VALUES (?, ?)",
+                "INSERT INTO categories (name, description) VALUES (?, ?) ON CONFLICT (name) DO NOTHING",
                 cat
             )
 
         conn.commit()
 
-        # Look up IDs by name for reliable FK references
         def civ_id(name):
-            return conn.execute("SELECT id FROM civilizations WHERE name=?", (name,)).fetchone()[0]
+            row = conn.execute("SELECT id FROM civilizations WHERE name=?", (name,)).fetchone()
+            return row[0] if row else None
 
         def cat_id(name):
-            return conn.execute("SELECT id FROM categories WHERE name=?", (name,)).fetchone()[0]
+            row = conn.execute("SELECT id FROM categories WHERE name=?", (name,)).fetchone()
+            return row[0] if row else None
 
         # ── Seed artifacts ──────────────────────────────────────────────────
         artifacts = [
@@ -274,15 +392,14 @@ def initialize_database():
         ]
 
         for a in artifacts:
-            existing = conn.execute("SELECT id FROM artifacts WHERE name = ? AND civilization_id = ?", (a[0], a[7])).fetchone()
-            if not existing:
-                conn.execute(
-                    """INSERT INTO artifacts
-                       (name, description, period, discovery_location, discovery_year,
-                        material, image_url, civilization_id, category_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    a
-                )
+            conn.execute(
+                """INSERT INTO artifacts
+                   (name, description, period, discovery_location, discovery_year,
+                    material, image_url, civilization_id, category_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT (name, civilization_id) DO NOTHING""",
+                a
+            )
 
         conn.commit()
 
@@ -294,7 +411,7 @@ def initialize_database():
         ]
         for cur in curators:
             conn.execute(
-                "INSERT OR IGNORE INTO curators (name, email, specialization) VALUES (?, ?, ?)",
+                "INSERT INTO curators (name, email, specialization) VALUES (?, ?, ?) ON CONFLICT (email) DO NOTHING",
                 cur
             )
         conn.commit()
@@ -326,7 +443,7 @@ def initialize_database():
         ]
         for exh in exhibitions:
             conn.execute(
-                "INSERT OR IGNORE INTO exhibitions (title, start_date, end_date, curator_id) VALUES (?, ?, ?, ?)",
+                "INSERT INTO exhibitions (title, start_date, end_date, curator_id) VALUES (?, ?, ?, ?) ON CONFLICT (title) DO NOTHING",
                 exh
             )
         conn.commit()
@@ -341,15 +458,12 @@ def initialize_database():
 
         # ── Seed exhibition_artifacts (many-to-many links) ──────────────────
         links = [
-            # Echoes of the Indus
             ("Echoes of the Indus: Dawn of Urbanity", "Mohenjo-daro Dancing Girl"),
             ("Echoes of the Indus: Dawn of Urbanity", "Indus Valley Terracotta Figurine"),
             ("Echoes of the Indus: Dawn of Urbanity", "Indus Seal with Script"),
-            # Treasures of the Nile
             ("Treasures of the Nile: Gold & Eternity", "Rosetta Stone Inscription"),
             ("Treasures of the Nile: Gold & Eternity", "Canopic Jar of Qebehsenuef"),
             ("Treasures of the Nile: Gold & Eternity", "Egyptian Gold Pectoral"),
-            # Imperial Grandeur
             ("Imperial Grandeur: Rome and the Classical World", "Roman Silver Denarius"),
             ("Imperial Grandeur: Rome and the Classical World", "Roman Garum Amphora"),
             ("Imperial Grandeur: Rome and the Classical World", "Roman Legionary Gladius"),
@@ -360,15 +474,16 @@ def initialize_database():
             aid = art_id(art_name)
             if eid and aid:
                 conn.execute(
-                    "INSERT OR IGNORE INTO exhibition_artifacts (exhibition_id, artifact_id) VALUES (?, ?)",
+                    "INSERT INTO exhibition_artifacts (exhibition_id, artifact_id) VALUES (?, ?) ON CONFLICT (exhibition_id, artifact_id) DO NOTHING",
                     (eid, aid)
                 )
         conn.commit()
-        print("[DB] Database ready: " + os.path.basename(DATABASE))
+        print("[DB] PostgreSQL database ready on Supabase.")
 
-    except sqlite3.Error as e:
+    except psycopg2.Error as e:
         print("[DB ERROR] " + str(e))
         conn.rollback()
+        raise e
     finally:
         conn.close()
 
